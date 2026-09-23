@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "display_name": "RSS Plus",
+    "short_desc": "RSS feeds, scheduled push and built-in AI translation",
+    "desc": "Subscribe via RSSHub routes or plain feed URLs, push on a schedule, configure each subscription separately, and translate with AstrBot's own LLM providers (no extra API key). Includes a WebUI settings page."
+  },
+  "pages": {
+    "settings": {
+      "title": "RSS Plus",
+      "description": "Subscriptions, per-subscription schedule and image limits, built-in AI translation and all plugin settings.",
+      "subtitle": "Built-in AI translation · scheduled push · every setting in one place",
+      "tab_general": "General",
+      "tab_translate": "Translation",
+      "tab_picture": "Images",
+      "tab_subs": "Subscriptions",
+      "tab_rsshub": "RSSHub",
+      "tab_tools": "Status / Tools",
+      "save": "Save",
+      "reset": "Discard changes"
+    }
+  }
+}

@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RSS 订阅增强版 · 插件配置</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>正在连接 AstrBot 插件页面…</p>
+    </div>
+
+    <div id="app" class="app" hidden>
+      <header class="hdr">
+        <div class="hdr-main">
+          <div class="logo">RSS</div>
+          <div>
+            <h1>RSS 订阅增强版</h1>
+            <p class="sub">内置 AI 翻译 · 定时推送 · 全部配置都在这里</p>
+          </div>
+        </div>
+        <div class="chips" id="statusChips"></div>
+      </header>
+
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="general">常规</button>
+        <button class="tab" data-tab="style">推送样式</button>
+        <button class="tab" data-tab="translate">翻译</button>
+        <button class="tab" data-tab="picture">图片</button>
+        <button class="tab" data-tab="subs">订阅管理</button>
+        <button class="tab" data-tab="rsshub">RSSHub</button>
+        <button class="tab" data-tab="tools">状态 / 工具</button>
+      </nav>
+
+      <main class="content">
+        <!-- ================================ 常规 ================================ -->
+        <section class="panel active" data-panel="general">
+          <div class="card">
+            <h2>推送行为</h2>
+            <p class="hint">控制定时推送时消息的长度、形式与合并方式。</p>
+            <div class="grid">
+              <label class="field">
+                <span>标题最大长度</span>
+                <input type="number" min="5" max="500" data-path="title_max_length" data-type="int" />
+                <small>超过会被截断并追加省略号。</small>
+              </label>
+              <label class="field">
+                <span>描述最大长度</span>
+                <input type="number" min="20" max="5000" data-path="description_max_length" data-type="int" />
+                <small>截取发生在翻译之前，会直接影响翻译消耗。</small>
+              </label>
+              <label class="field">
+                <span>每次获取的最大条目数</span>
+                <input type="number" min="-1" max="100" data-path="max_items_per_poll" data-type="int" />
+                <small>-1 表示不限制。</small>
+              </label>
+            </div>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" data-path="show_title" data-type="bool" />
+                <span>推送时显示文章标题</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="compose" data-type="bool" />
+                <span>合并转发（仅 QQ / aiocqhttp）</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="t2i" data-type="bool" />
+                <span>转成图片发送（订阅中的图片会丢失）</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="is_hide_url" data-type="bool" />
+                <span>隐藏链接（降低风控概率）</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="show_video_info" data-type="bool" />
+                <span>视频帖：推送封面图与视频链接（封面不受图片上限影响，关掉后视频帖按旧行为处理）</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================ 推送样式 ================================ -->
+        <section class="panel" data-panel="style">
+          <div class="card">
+            <h2>推送文本样式</h2>
+            <p class="hint">
+              推送消息长什么样，全部由下面的模板决定，改完保存立即生效，不需要改代码。
+              模板变量：
+              <code>{chan_title}</code> 频道名 ·
+              <code>{title}</code> 标题 ·
+              <code>{content}</code> 正文 ·
+              <code>{link}</code> 链接 ·
+              <code>{video}</code> 视频播放页链接 ·
+              <code>{video_cover}</code> 视频封面图位置 ·
+              <code>{pub_date}</code> 发布时间 ·
+              <code>{feed_url}</code> 订阅源地址。
+              <br />
+              分隔线（默认 <code>---</code>）就是模板里的一行普通文字，想换成 <code>━━━━</code> 或整行删掉，直接改模板。
+              <br />
+              <strong>视频封面图放哪儿也由你定</strong>：把 <code>{video_cover}</code> 单独放一行，封面图就插在那个位置
+              （正文前、正文后、链接前都行）；不写它就还是老样子——封面作为第一张图跟在文字后面。不是视频帖时这一行会整行消失。
+              <br />
+              <strong>一行里用到的变量全是空的话，这一行会整行消失</strong>：所以
+              <code>{title}</code> 在没标题时、<code>视频：{video}</code> 在不是视频帖时，
+              都会连标签一起消失，不会留下空行或光秃秃的「视频：」。
+            </p>
+            <label class="field full">
+              <span>消息模板（显示链接时）</span>
+              <textarea class="code" rows="7" spellcheck="false" data-path="message_style.template" data-type="text"></textarea>
+              <small>默认值就是旧版本的排版，只多了一行「视频：{video}」（普通帖子会自动隐藏）。想换说法直接改文字，例如把「更新了喵❤」改成「有更新啦」，把 --- 改成 ━━━━ 或删掉。视频链接是否出现还要看「常规」页签里的「视频帖」开关。</small>
+            </label>
+            <label class="field full">
+              <span>消息模板（隐藏链接时）</span>
+              <textarea class="code" rows="6" spellcheck="false" data-path="message_style.template_hide_url" data-type="text"></textarea>
+              <small>开启「隐藏链接」后使用这份模板，里面不写 {link} 就不会发链接。</small>
+            </label>
+            <div class="grid">
+              <label class="field">
+                <span>正文长度上限</span>
+                <input type="number" min="-1" max="20000" data-path="message_style.max_content_length" data-type="int" />
+                <small>0 或 -1 表示不限制；截断会尽量停在句子结束处，不会切断链接。</small>
+              </label>
+              <label class="field">
+                <span>图片读取失败文案</span>
+                <input type="text" data-path="message_style.pic_error" data-type="string" />
+                <small>图片抓取失败时显示的提示文字。</small>
+              </label>
+              <label class="field">
+                <span>图片处理异常文案</span>
+                <input type="text" data-path="message_style.pic_error_detail" data-type="string" />
+                <small>可用 <code>{url}</code> 代表图片地址。</small>
+              </label>
+            </div>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" data-path="message_style.smart_break" data-type="bool" />
+                <span>智能换行（遇到内置断句字符 <code>。！？!?…</code> 及英文句号就断行，链接不会被拆断）</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="message_style.hashtag_own_line" data-type="bool" />
+                <span>结尾的话题标签各自单独成行</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="message_style.collapse_blank_lines" data-type="bool" />
+                <span>折叠多余空行（最多保留一个空行）</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>样式预览</h2>
+              <button class="btn primary" id="btnStylePreview">渲染预览</button>
+            </div>
+            <p class="hint">
+              用上面表单里的样式（没保存也可以）渲染一条示例，确认效果后再保存。
+              「显示标题」「隐藏链接」取「常规」页签里的当前勾选状态。
+            </p>
+            <div class="grid">
+              <label class="field">
+                <span>示例标题</span>
+                <input id="styleSampleTitle" type="text" placeholder="留空使用内置示例" />
+              </label>
+              <label class="field">
+                <span>示例链接</span>
+                <input id="styleSampleLink" type="text" placeholder="https://example.com/post/123" />
+              </label>
+              <label class="field">
+                <span>示例视频链接（{video} / {video_cover} 用）</span>
+                <input id="styleSampleVideo" type="text" placeholder="留空使用内置示例视频" />
+              </label>
+            </div>
+            <label class="field full">
+              <span>示例正文（可以粘一条真实的推送内容进来试）</span>
+              <textarea id="styleSampleContent" rows="4" placeholder="粘贴一段真实的推送正文，例如：任天堂公布了新主机。售价 499 美元！详情 https://example.com/a #Switch2# #任天堂#"></textarea>
+              <small>留空则使用内置示例文本。</small>
+            </label>
+            <p class="muted" id="stylePreviewMeta"></p>
+            <pre class="result" id="stylePreviewResult" hidden></pre>
+          </div>
+        </section>
+
+        <!-- ================================ 翻译 ================================ -->
+        <section class="panel" data-panel="translate">
+          <div class="card">
+            <h2>内置 AI 翻译</h2>
+            <p class="hint">
+              直接调用 AstrBot 已配置的大模型，不需要再填写任何第三方 API Key。留空模型时按
+              「当前会话模型 → AstrBot 默认模型」的顺序自动选择。
+            </p>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" data-path="translate.enable" data-type="bool" />
+                <span>启用翻译</span>
+              </label>
+            </div>
+            <div class="grid">
+              <label class="field">
+                <span>翻译使用的模型</span>
+                <select id="providerSelect" data-path="translate.provider_id" data-type="string"></select>
+                <small>留空 = 跟随当前会话 / 默认模型。</small>
+              </label>
+              <label class="field">
+                <span>目标语言</span>
+                <input list="langList" data-path="translate.target_lang" data-type="string" />
+                <datalist id="langList">
+                  <option value="中文"></option>
+                  <option value="English"></option>
+                  <option value="日本語"></option>
+                  <option value="한국어"></option>
+                  <option value="Русский"></option>
+                </datalist>
+                <small>可以填任意语言名称，例如「繁體中文」。</small>
+              </label>
+              <label class="field">
+                <span>翻译超时（秒）</span>
+                <input type="number" min="5" max="600" data-path="translate.timeout" data-type="int" />
+                <small>超时后会保留原文继续推送。</small>
+              </label>
+              <label class="field">
+                <span>单条最大字符数</span>
+                <input type="number" min="50" max="20000" data-path="translate.max_chars" data-type="int" />
+                <small>超出部分不参与翻译，节省 token。</small>
+              </label>
+              <label class="field">
+                <span>采样温度</span>
+                <input type="number" min="0" max="2" step="0.1" data-path="translate.temperature" data-type="float" />
+                <small>建议 0 ~ 0.3。</small>
+              </label>
+              <label class="field">
+                <span>翻译缓存条数</span>
+                <input type="number" min="0" max="10000" data-path="translate.cache_size" data-type="int" />
+                <small>相同内容重复推送时直接命中缓存。</small>
+              </label>
+            </div>
+            <label class="field full">
+              <span>需要翻译的域名关键词（每行一个）</span>
+              <textarea rows="3" data-path="translate.sources" data-type="list" placeholder="x.com&#10;twitter.com"></textarea>
+              <small>链接或正文命中任一关键词才翻译；全部删除表示翻译所有订阅内容。</small>
+            </label>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" data-path="translate.skip_if_translated" data-type="bool" />
+                <span>已是目标语言时跳过翻译</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="translate.translate_title" data-type="bool" />
+                <span>同时翻译标题</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="translate.keep_original_on_fail" data-type="bool" />
+                <span>翻译失败时保留原文</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="translate.short_link_clean" data-type="bool" />
+                <span>清理正文链接的跟踪参数（utm_* 等）</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>翻译测试</h2>
+            <p class="hint">不依赖订阅，直接验证当前模型是否可用。</p>
+            <textarea id="testText" rows="3" placeholder="粘贴一段英文试试，例如：Nintendo Switch 2 will be released soon."></textarea>
+            <div class="row">
+              <button class="btn primary" id="btnTest">开始翻译</button>
+              <span class="muted" id="testMeta"></span>
+            </div>
+            <pre class="result" id="testResult" hidden></pre>
+          </div>
+        </section>
+
+        <!-- ================================ 图片 ================================ -->
+        <section class="panel" data-panel="picture">
+          <div class="card">
+            <h2>图片推送</h2>
+            <p class="hint">读取 RSS 正文中的图片并随消息一起发送。</p>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" data-path="pic_config.is_read_pic" data-type="bool" />
+                <span>读取并发送 RSS 中的图片</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" data-path="pic_config.is_adjust_pic" data-type="bool" />
+                <span>防和谐处理（随机修改一个角像素）</span>
+              </label>
+            </div>
+            <label class="field">
+              <span>每次最大图片数量（全局默认值）</span>
+              <input type="number" min="-1" max="50" data-path="pic_config.max_pic_item" data-type="int" />
+              <small>-1 表示不限制，0 表示不发正文图片。单个订阅可以在「订阅管理」页签里单独覆盖这个值。视频帖的封面图不受这里影响。</small>
+            </label>
+          </div>
+        </section>
+
+        <!-- ================================ 订阅 ================================ -->
+        <section class="panel" data-panel="subs">
+          <div class="card">
+            <h2>新增订阅</h2>
+            <p class="hint">
+              直接在这里添加订阅，等价于聊天里的 <code>/rss add-url</code> 与 <code>/rss add</code>。
+              推送会话（umo）决定这条订阅推给谁。
+            </p>
+            <div class="grid">
+              <label class="field full">
+                <span>订阅源</span>
+                <div class="row tight">
+                  <select id="addMode">
+                    <option value="url">Feed 直链</option>
+                    <option value="rsshub">RSSHub 路由</option>
+                  </select>
+                  <input id="addUrl" type="text" placeholder="https://example.com/feed.xml" />
+                  <select id="addEndpoint" hidden></select>
+                  <input id="addRoute" type="text" placeholder="/weibo/user/1234567890" hidden />
+                </div>
+              </label>
+              <label class="field">
+                <span>推送会话（umo）</span>
+                <input id="addUser" type="text" list="umoList" placeholder="aiocqhttp:group:123456789" />
+                <small>格式为 平台:类型:会话ID，可从下方已有订阅里直接选。</small>
+              </label>
+              <label class="field">
+                <span>推送频率（cron）</span>
+                <input id="addCron" type="text" value="0 * * * *" />
+                <small>分 时 日 月 周，例如 <code>0/30 * * * *</code> 表示每 30 分钟。</small>
+              </label>
+              <label class="field">
+                <span>图片上限（可留空）</span>
+                <input id="addPic" type="text" inputmode="numeric" placeholder="跟随全局" />
+                <small>留空=跟随全局，0=不发图，-1=不限制，n=最多 n 张。</small>
+              </label>
+            </div>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" id="addForce" />
+                <span>强制添加（抓不到频道信息也照样添加）</span>
+              </label>
+            </div>
+            <div class="row">
+              <button class="btn primary" id="btnAddSub">添加订阅</button>
+              <span class="muted" id="addHint"></span>
+            </div>
+            <datalist id="umoList"></datalist>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>订阅管理</h2>
+              <button class="btn" id="btnReloadSubs">刷新</button>
+            </div>
+            <p class="hint">
+              这里展示 Bot 中所有会话的订阅。每条订阅的推送频率、<b>图片数量上限</b>都可以单独设置，
+              图片上限留空表示跟随「图片」页签里的全局值。
+            </p>
+            <div class="legend">
+              <span><b>图片上限</b>填写规则：</span>
+              <span><code>留空</code> 跟随全局</span>
+              <span><code>0</code> 该订阅不发送正文图片（视频封面仍会发）</span>
+              <span><code>-1</code> 不限制</span>
+              <span><code>n</code> 最多 n 张（显式填写时会为该订阅读取图片，即使全局开关关闭）</span>
+              <span>删除是<b>点两次</b>：第一次按钮变成「再点一次删除」，再点一次才真删（插件页面在受限 iframe 里，浏览器弹窗被禁用）</span>
+            </div>
+            <div class="table-wrap">
+              <table class="table" id="subsTable">
+                <thead>
+                  <tr>
+                    <th>频道</th>
+                    <th>订阅会话</th>
+                    <th>推送频率（cron）</th>
+                    <th>图片上限</th>
+                    <th class="right">操作</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================ RSSHub ================================ -->
+        <section class="panel" data-panel="rsshub">
+          <div class="card">
+            <h2>RSSHub 端点</h2>
+            <p class="hint">
+              添加公共或自建的 RSSHub 实例，之后即可用 <code>/rss add &lt;序号&gt; &lt;路由&gt; ...</code> 订阅。
+            </p>
+            <div class="row">
+              <input id="endpointInput" type="text" placeholder="https://rsshub.app" />
+              <button class="btn primary" id="btnAddEndpoint">添加</button>
+            </div>
+            <ul class="list" id="endpointList"></ul>
+          </div>
+        </section>
+
+        <!-- ================================ 工具 ================================ -->
+        <section class="panel" data-panel="tools">
+          <div class="card">
+            <div class="card-head">
+              <h2>运行状态</h2>
+              <button class="btn" id="btnReload">重载数据与定时任务</button>
+            </div>
+            <div class="kv" id="statusKv"></div>
+          </div>
+          <div class="card">
+            <h2>定时任务</h2>
+            <div class="table-wrap">
+              <table class="table" id="jobsTable">
+                <thead>
+                  <tr><th>任务 ID</th><th>下次执行</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <h2>图片链接诊断</h2>
+            <p class="hint">
+              推送时出现「图片链接读取失败」的话，把那条图片链接粘进来，这里会显示 HTTP 状态、
+              Content-Type、实际文件格式和失败原因。
+            </p>
+            <div class="row">
+              <input id="picTestInput" type="text" placeholder="https://example.com/a.jpg" />
+              <button class="btn primary" id="btnPicTest">诊断</button>
+            </div>
+            <pre class="result" id="picTestResult" hidden></pre>
+          </div>
+          <div class="card">
+            <h2>关于</h2>
+            <div class="kv" id="aboutKv"></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="savebar">
+        <span class="muted" id="saveHint">修改后记得保存</span>
+        <div class="row">
+          <button class="btn" id="btnReset">放弃修改</button>
+          <button class="btn primary" id="btnSave">保存配置</button>
+        </div>
+      </footer>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "display_name": "RSS 订阅增强版",
+    "short_desc": "RSS 订阅 + 定时推送 + 内置 AI 翻译",
+    "desc": "支持 RSSHub 路由与直链订阅、定时推送、每条订阅独立配置、内置 AI 翻译（复用 AstrBot 模型，无需额外 API Key）以及 WebUI 插件配置页。"
+  },
+  "pages": {
+    "settings": {
+      "title": "RSS 订阅增强版",
+      "description": "订阅管理、每条订阅的推送频率与图片数量、内置 AI 翻译与全部插件配置。",
+      "subtitle": "内置 AI 翻译 · 定时推送 · 全部配置都在这里",
+      "tab_general": "常规",
+      "tab_translate": "翻译",
+      "tab_picture": "图片",
+      "tab_subs": "订阅管理",
+      "tab_rsshub": "RSSHub",
+      "tab_tools": "状态 / 工具",
+      "save": "保存配置",
+      "reset": "放弃修改"
+    }
+  }
+}
