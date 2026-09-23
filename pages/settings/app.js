@@ -362,292 +362,349 @@ function bindTabs() {
   });
 }
 
-function bindActions() {
-  $('#btnSave').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    busy(btn, true, '保存中…');
-    try {
-      const payload = collectForms();
-      const res = await bridge.apiPost('page/config', payload);
-      state.config = res.config || state.config;
-      renderProviders();
-      fillForms();
-      await loadStatus();
-      toast('配置已保存并生效', 'ok');
-    } catch (err) {
-      toast(`保存失败：${err.message}`, 'error');
-    } finally {
-      busy(btn, false);
-    }
-  });
+/* ---- 配置页：保存 / 重置 / 翻译测试 / 图片诊断 / 样式预览 ---- */
 
-  $('#btnReset').addEventListener('click', async () => {
-    await loadConfig();
-    toast('已恢复到上次保存的配置');
-  });
-
-  $('#btnTest').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    const text = $('#testText').value.trim();
-    const result = $('#testResult');
-    if (!text) {
-      toast('请先输入要翻译的文本', 'error');
-      return;
-    }
-    busy(btn, true, '翻译中…');
-    hide(result);
-    try {
-      const data = await bridge.apiPost('page/translate/test', { text });
-      show(result);
-      result.textContent = data.result || '（空结果）';
-      const provider = data.provider?.configured_provider_id
-        || data.provider?.session_provider_id
-        || data.provider?.default_provider?.model
-        || '默认模型';
-      $('#testMeta').textContent = data.translated
-        ? `耗时 ${data.elapsed_ms} ms · 模型：${provider}`
-        : `耗时 ${data.elapsed_ms} ms · 判断为无需翻译（已是目标语言）`;
-    } catch (err) {
-      toast(`翻译失败：${err.message}`, 'error');
-      $('#testMeta').textContent = '';
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  $('#btnPicTest').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    const url = $('#picTestInput').value.trim();
-    const box = $('#picTestResult');
-    if (!url) {
-      toast('请输入图片链接', 'error');
-      return;
-    }
-    busy(btn, true, '诊断中…');
-    try {
-      const data = await bridge.apiPost('page/pic/test', { url });
-      const r = data.result || {};
-      show(box);
-      box.textContent = [
-        `地址：${r.url}`,
-        `结果：${r.ok ? '✅ 成功' : '❌ 失败'} - ${r.reason}`,
-        `HTTP：${r.status ?? '—'}    类型：${r.content_type || '无'}    大小：${r.size} 字节`,
-        r.detected_type ? `实际格式：${r.detected_type}` : '',
-        r.image ? `图像信息：${r.image.format} ${r.image.size} ${r.image.mode}` : '',
-        r.image_error ? `PIL 解析失败：${r.image_error}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
-    } catch (err) {
-      hide(box);
-      toast(`诊断失败：${err.message}`, 'error');
-    } finally {
-      busy(btn, false);
-    }
-  });
-
-  $('#btnStylePreview').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    const box = $('#stylePreviewResult');
+// 保存配置并让插件立刻生效
+async function onSaveConfig(e) {
+  const btn = e.currentTarget;
+  busy(btn, true, '保存中…');
+  try {
     const payload = collectForms();
-    payload.sample = {
-      title: $('#styleSampleTitle').value,
-      link: $('#styleSampleLink').value,
-      video: $('#styleSampleVideo').value,
-      content: $('#styleSampleContent').value,
-    };
-    busy(btn, true, '渲染中…');
-    try {
-      const data = await bridge.apiPost('page/style/preview', payload);
-      show(box);
-      box.textContent = data.text || '（空结果）';
-      const tpl = data.used_template === 'template_hide_url' ? '隐藏链接模板' : '显示链接模板';
-      const coverHint = data.cover_placeholder
-        ? '封面按 {video_cover} 的位置插入'
-        : '模板里没有 {video_cover}，封面会作为第一张图跟在文字后面';
-      $('#stylePreviewMeta').textContent =
-        `${tpl} · 显示标题：${data.show_title ? '是' : '否'} · ${data.line_count} 行 / ${data.char_count} 字 · ${coverHint}`;
-    } catch (err) {
-      hide(box);
-      toast(`预览失败：${err.message}`, 'error');
-      $('#stylePreviewMeta').textContent = '';
-    } finally {
-      busy(btn, false);
-    }
-  });
+    const res = await bridge.apiPost('page/config', payload);
+    state.config = res.config || state.config;
+    renderProviders();
+    fillForms();
+    await loadStatus();
+    toast('配置已保存并生效', 'ok');
+  } catch (err) {
+    toast(`保存失败：${err.message}`, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
 
-  // 订阅源模式切换：直链 / RSSHub 路由
-  const applyAddMode = () => {
-    const mode = $('#addMode').value;
-    const rsshub = mode === 'rsshub';
-    $('#addUrl').hidden = rsshub;
-    $('#addEndpoint').hidden = !rsshub;
-    $('#addRoute').hidden = !rsshub;
+// 放弃表单里的改动，重新拉一次已保存的配置
+async function onResetConfig() {
+  await loadConfig();
+  toast('已恢复到上次保存的配置');
+}
+
+// 在线测试翻译（显示耗时与所用模型）
+async function onTestTranslate(e) {
+  const btn = e.currentTarget;
+  const text = $('#testText').value.trim();
+  const result = $('#testResult');
+  if (!text) {
+    toast('请先输入要翻译的文本', 'error');
+    return;
+  }
+  busy(btn, true, '翻译中…');
+  hide(result);
+  try {
+    const data = await bridge.apiPost('page/translate/test', { text });
+    show(result);
+    result.textContent = data.result || '（空结果）';
+    const provider = data.provider?.configured_provider_id
+      || data.provider?.session_provider_id
+      || data.provider?.default_provider?.model
+      || '默认模型';
+    $('#testMeta').textContent = data.translated
+      ? `耗时 ${data.elapsed_ms} ms · 模型：${provider}`
+      : `耗时 ${data.elapsed_ms} ms · 判断为无需翻译（已是目标语言）`;
+  } catch (err) {
+    toast(`翻译失败：${err.message}`, 'error');
+    $('#testMeta').textContent = '';
+  } finally {
+    busy(btn, false);
+  }
+}
+
+// 单张图片读取诊断
+async function onTestPicture(e) {
+  const btn = e.currentTarget;
+  const url = $('#picTestInput').value.trim();
+  const box = $('#picTestResult');
+  if (!url) {
+    toast('请输入图片链接', 'error');
+    return;
+  }
+  busy(btn, true, '诊断中…');
+  try {
+    const data = await bridge.apiPost('page/pic/test', { url });
+    const r = data.result || {};
+    show(box);
+    box.textContent = [
+      `地址：${r.url}`,
+      `结果：${r.ok ? '✅ 成功' : '❌ 失败'} - ${r.reason}`,
+      `HTTP：${r.status ?? '—'}    类型：${r.content_type || '无'}    大小：${r.size} 字节`,
+      r.detected_type ? `实际格式：${r.detected_type}` : '',
+      r.image ? `图像信息：${r.image.format} ${r.image.size} ${r.image.mode}` : '',
+      r.image_error ? `PIL 解析失败：${r.image_error}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  } catch (err) {
+    hide(box);
+    toast(`诊断失败：${err.message}`, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
+
+// 不保存直接预览推送样式
+async function onPreviewStyle(e) {
+  const btn = e.currentTarget;
+  const box = $('#stylePreviewResult');
+  const payload = collectForms();
+  payload.sample = {
+    title: $('#styleSampleTitle').value,
+    link: $('#styleSampleLink').value,
+    video: $('#styleSampleVideo').value,
+    content: $('#styleSampleContent').value,
   };
+  busy(btn, true, '渲染中…');
+  try {
+    const data = await bridge.apiPost('page/style/preview', payload);
+    show(box);
+    box.textContent = data.text || '（空结果）';
+    const tpl = data.used_template === 'template_hide_url' ? '隐藏链接模板' : '显示链接模板';
+    const coverHint = data.cover_placeholder
+      ? '封面按 {video_cover} 的位置插入'
+      : '模板里没有 {video_cover}，封面会作为第一张图跟在文字后面';
+    $('#stylePreviewMeta').textContent =
+      `${tpl} · 显示标题：${data.show_title ? '是' : '否'} · ${data.line_count} 行 / ${data.char_count} 字 · ${coverHint}`;
+  } catch (err) {
+    hide(box);
+    toast(`预览失败：${err.message}`, 'error');
+    $('#stylePreviewMeta').textContent = '';
+  } finally {
+    busy(btn, false);
+  }
+}
+
+function bindConfigActions() {
+  $('#btnSave').addEventListener('click', onSaveConfig);
+  $('#btnReset').addEventListener('click', onResetConfig);
+  $('#btnTest').addEventListener('click', onTestTranslate);
+  $('#btnPicTest').addEventListener('click', onTestPicture);
+  $('#btnStylePreview').addEventListener('click', onPreviewStyle);
+}
+
+/* ---- 新增订阅：模式切换 / 添加 / 刷新列表 ---- */
+
+// 订阅源模式切换：直链 / RSSHub 路由
+function applyAddMode() {
+  const mode = $('#addMode').value;
+  const rsshub = mode === 'rsshub';
+  $('#addUrl').hidden = rsshub;
+  $('#addEndpoint').hidden = !rsshub;
+  $('#addRoute').hidden = !rsshub;
+}
+
+// 收集「新增订阅」表单并校验；校验不通过时提示用户并返回 null
+function collectAddSubscriptionPayload() {
+  const mode = $('#addMode').value;
+  const payload = {
+    user: $('#addUser').value.trim(),
+    cron_expr: $('#addCron').value.trim(),
+    max_pic_item: $('#addPic').value.trim(),
+    force: $('#addForce').checked,
+  };
+  if (mode === 'rsshub') {
+    payload.endpoint_index = $('#addEndpoint').value;
+    payload.route = $('#addRoute').value.trim();
+    if (!state.endpoints.length) {
+      toast('请先到 RSSHub 页签添加一个端点', 'error');
+      return null;
+    }
+    if (!payload.route) {
+      toast('请填写 RSSHub 路由，例如 /weibo/user/1234567890', 'error');
+      return null;
+    }
+  } else {
+    payload.url = $('#addUrl').value.trim();
+    if (!payload.url) {
+      toast('请填写 Feed 直链', 'error');
+      return null;
+    }
+  }
+  if (!payload.user) {
+    toast('请填写推送会话（umo）', 'error');
+    return null;
+  }
+  if (!payload.cron_expr) {
+    toast('请填写推送频率（cron）', 'error');
+    return null;
+  }
+  return payload;
+}
+
+async function onAddSubscription(e) {
+  const btn = e.currentTarget;
+  const payload = collectAddSubscriptionPayload();
+  if (!payload) return;
+  busy(btn, true, '添加中…');
+  $('#addHint').textContent = '正在抓取订阅源…';
+  try {
+    const res = await bridge.apiPost('page/subscriptions/add', payload);
+    toast(res.message || '添加成功', 'ok');
+    $('#addHint').textContent = '';
+    $('#addUrl').value = '';
+    $('#addRoute').value = '';
+    await Promise.all([loadSubs(), loadStatus()]);
+  } catch (err) {
+    $('#addHint').textContent = '';
+    toast(`添加失败：${err.message}`, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
+
+async function onReloadSubs() {
+  try {
+    await loadSubs();
+    toast('订阅列表已刷新', 'ok');
+  } catch (err) {
+    toast(`刷新失败：${err.message}`, 'error');
+  }
+}
+
+function bindAddSubscriptionActions() {
   $('#addMode').addEventListener('change', applyAddMode);
   applyAddMode();
+  $('#btnAddSub').addEventListener('click', onAddSubscription);
+  $('#btnReloadSubs').addEventListener('click', onReloadSubs);
+}
 
-  $('#btnAddSub').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    const mode = $('#addMode').value;
-    const payload = {
-      user: $('#addUser').value.trim(),
-      cron_expr: $('#addCron').value.trim(),
-      max_pic_item: $('#addPic').value.trim(),
-      force: $('#addForce').checked,
-    };
-    if (mode === 'rsshub') {
-      payload.endpoint_index = $('#addEndpoint').value;
-      payload.route = $('#addRoute').value.trim();
-      if (!state.endpoints.length) {
-        toast('请先到 RSSHub 页签添加一个端点', 'error');
-        return;
-      }
-      if (!payload.route) {
-        toast('请填写 RSSHub 路由，例如 /weibo/user/1234567890', 'error');
-        return;
-      }
-    } else {
-      payload.url = $('#addUrl').value.trim();
-      if (!payload.url) {
-        toast('请填写 Feed 直链', 'error');
-        return;
-      }
-    }
-    if (!payload.user) {
-      toast('请填写推送会话（umo）', 'error');
-      return;
-    }
-    if (!payload.cron_expr) {
-      toast('请填写推送频率（cron）', 'error');
-      return;
-    }
+/* ---- 维护操作：重载插件 / RSSHub 端点增删 ---- */
 
-    busy(btn, true, '添加中…');
-    $('#addHint').textContent = '正在抓取订阅源…';
-    try {
-      const res = await bridge.apiPost('page/subscriptions/add', payload);
-      toast(res.message || '添加成功', 'ok');
-      $('#addHint').textContent = '';
-      $('#addUrl').value = '';
-      $('#addRoute').value = '';
-      await Promise.all([loadSubs(), loadStatus()]);
-    } catch (err) {
-      $('#addHint').textContent = '';
-      toast(`添加失败：${err.message}`, 'error');
-    } finally {
-      busy(btn, false);
-    }
-  });
+async function onReloadPlugin(e) {
+  const btn = e.currentTarget;
+  busy(btn, true, '重载中…');
+  try {
+    const res = await bridge.apiPost('page/actions/reload', {});
+    await Promise.all([loadStatus(), loadSubs()]);
+    toast(res.message || '已重载', 'ok');
+  } catch (err) {
+    toast(`重载失败：${err.message}`, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
 
-  $('#btnReloadSubs').addEventListener('click', async () => {
-    try {
-      await loadSubs();
-      toast('订阅列表已刷新', 'ok');
-    } catch (err) {
-      toast(`刷新失败：${err.message}`, 'error');
-    }
-  });
+async function onAddEndpoint(e) {
+  const btn = e.currentTarget;
+  const input = $('#endpointInput');
+  const url = input.value.trim();
+  if (!url) {
+    toast('请输入 RSSHub 地址', 'error');
+    return;
+  }
+  busy(btn, true, '添加中…');
+  try {
+    const res = await bridge.apiPost('page/rsshub/add', { url });
+    state.endpoints = res.endpoints || [];
+    renderEndpoints();
+    input.value = '';
+    await loadStatus();
+    toast('添加成功', 'ok');
+  } catch (err) {
+    toast(`添加失败：${err.message}`, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
 
-  $('#btnReload').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    busy(btn, true, '重载中…');
-    try {
-      const res = await bridge.apiPost('page/actions/reload', {});
-      await Promise.all([loadStatus(), loadSubs()]);
-      toast(res.message || '已重载', 'ok');
-    } catch (err) {
-      toast(`重载失败：${err.message}`, 'error');
-    } finally {
-      busy(btn, false);
-    }
-  });
+async function onEndpointListClick(e) {
+  const btn = e.target.closest('[data-endpoint-index]');
+  if (!btn) return;
+  const index = Number(btn.dataset.endpointIndex);
+  if (!armedConfirm(btn, `再点一次删除 ${index} 号端点`)) return;
+  busy(btn, true, '…');
+  try {
+    const res = await bridge.apiPost('page/rsshub/remove', { index });
+    state.endpoints = res.endpoints || [];
+    renderEndpoints();
+    await Promise.all([loadStatus(), loadSubs()]);
+    toast('已删除', 'ok');
+  } catch (err) {
+    toast(`删除失败：${err.message}`, 'error');
+    busy(btn, false);
+    disarm(btn);
+  }
+}
 
-  $('#btnAddEndpoint').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    const input = $('#endpointInput');
-    const url = input.value.trim();
-    if (!url) {
-      toast('请输入 RSSHub 地址', 'error');
-      return;
-    }
-    busy(btn, true, '添加中…');
-    try {
-      const res = await bridge.apiPost('page/rsshub/add', { url });
-      state.endpoints = res.endpoints || [];
-      renderEndpoints();
-      input.value = '';
-      await loadStatus();
-      toast('添加成功', 'ok');
-    } catch (err) {
-      toast(`添加失败：${err.message}`, 'error');
-    } finally {
-      busy(btn, false);
-    }
-  });
+function bindMaintenanceActions() {
+  $('#btnReload').addEventListener('click', onReloadPlugin);
+  $('#btnAddEndpoint').addEventListener('click', onAddEndpoint);
+  $('#endpointList').addEventListener('click', onEndpointListClick);
+}
 
-  $('#endpointList').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-endpoint-index]');
-    if (!btn) return;
-    const index = Number(btn.dataset.endpointIndex);
-    if (!armedConfirm(btn, `再点一次删除 ${index} 号端点`)) return;
-    busy(btn, true, '…');
-    try {
-      const res = await bridge.apiPost('page/rsshub/remove', { index });
-      state.endpoints = res.endpoints || [];
-      renderEndpoints();
-      await Promise.all([loadStatus(), loadSubs()]);
-      toast('已删除', 'ok');
-    } catch (err) {
-      toast(`删除失败：${err.message}`, 'error');
-      busy(btn, false);
-      disarm(btn);
-    }
-  });
+/* ---- 订阅列表：删除单条 / 保存单行设置 ---- */
 
-  $('#subsTable').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const { action, url, user } = btn.dataset;
-    if (action === 'delete') {
-      // 受限 iframe 里 confirm() 无效，用按钮二次确认代替
-      if (!armedConfirm(btn, '再点一次删除该订阅')) return;
-      busy(btn, true, '…');
-      try {
-        const res = await bridge.apiPost('page/subscriptions/delete', { url, user });
-        if (res && res.ok === false) {
-          throw new Error(res.error || res.message || '后端未删除');
-        }
-        await Promise.all([loadSubs(), loadStatus()]);
-        toast('已删除订阅', 'ok');
-      } catch (err) {
-        toast(`删除失败：${err.message}`, 'error');
-        busy(btn, false);
-        disarm(btn);
-      }
-      return;
+async function handleDeleteSubscription(btn) {
+  // 受限 iframe 里 confirm() 无效，用按钮二次确认代替
+  if (!armedConfirm(btn, '再点一次删除该订阅')) return;
+  const { url, user } = btn.dataset;
+  busy(btn, true, '…');
+  try {
+    const res = await bridge.apiPost('page/subscriptions/delete', { url, user });
+    if (res && res.ok === false) {
+      throw new Error(res.error || res.message || '后端未删除');
     }
-    if (action === 'save-row') {
-      const row = btn.closest('tr');
-      const cron = row.querySelector('.cron-input').value.trim();
-      const pic = row.querySelector('.pic-input').value.trim();
-      busy(btn, true, '…');
-      try {
-        await bridge.apiPost('page/subscriptions/update', {
-          url,
-          user,
-          cron_expr: cron,
-          max_pic_item: pic, // 空字符串 = 清除独立设置，跟随全局
-        });
-        await Promise.all([loadSubs(), loadStatus()]);
-        toast('已保存该订阅的设置', 'ok');
-      } catch (err) {
-        toast(`保存失败：${err.message}`, 'error');
-      } finally {
-        busy(btn, false);
-      }
-    }
-  });
+    await Promise.all([loadSubs(), loadStatus()]);
+    toast('已删除订阅', 'ok');
+  } catch (err) {
+    toast(`删除失败：${err.message}`, 'error');
+    busy(btn, false);
+    disarm(btn);
+  }
+}
+
+async function handleSaveSubscriptionRow(btn) {
+  const { url, user } = btn.dataset;
+  const row = btn.closest('tr');
+  const cron = row.querySelector('.cron-input').value.trim();
+  const pic = row.querySelector('.pic-input').value.trim();
+  busy(btn, true, '…');
+  try {
+    await bridge.apiPost('page/subscriptions/update', {
+      url,
+      user,
+      cron_expr: cron,
+      max_pic_item: pic, // 空字符串 = 清除独立设置，跟随全局
+    });
+    await Promise.all([loadSubs(), loadStatus()]);
+    toast('已保存该订阅的设置', 'ok');
+  } catch (err) {
+    toast(`保存失败：${err.message}`, 'error');
+  } finally {
+    busy(btn, false);
+  }
+}
+
+async function onSubsTableClick(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'delete') {
+    await handleDeleteSubscription(btn);
+    return;
+  }
+  if (btn.dataset.action === 'save-row') {
+    await handleSaveSubscriptionRow(btn);
+  }
+}
+
+function bindSubscriptionTableActions() {
+  $('#subsTable').addEventListener('click', onSubsTableClick);
+}
+
+// 事件绑定入口：各页签的处理器分组注册
+function bindActions() {
+  bindConfigActions();
+  bindAddSubscriptionActions();
+  bindMaintenanceActions();
+  bindSubscriptionTableActions();
 }
 
 /* ------------------------------------------------------------------ 启动 */
