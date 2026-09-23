@@ -318,6 +318,7 @@ function renderStatus() {
     ['配置存储', '插件页面（与 _conf_schema.json 共用同一份配置）'],
     ['常用指令', '/rss · /rss rsshub · /rss pic · /rss translate'],
     ['图片诊断', '/rss pic-test <图片链接>'],
+    ['调试屏蔽词', '/rss get <订阅序号>（手动获取不受屏蔽词限制，会标注命中的词）'],
   ]
     .map(([k, v]) => `<div><span>${k}</span><span>${escapeHtml(v)}</span></div>`)
     .join('');

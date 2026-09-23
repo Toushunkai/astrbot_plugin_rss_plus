@@ -15,7 +15,12 @@
    - 定时任务 ID 改为 md5，避免 Python hash 随机化导致重启后任务重复 / 丢失；
    - 数据文件放到插件数据目录并原子写入；
    - 数据文件结构自检，避免手工改坏后插件起不来；
-   - RSS 解析、图片下载增加容错与超时。
+   - RSS 解析、图片下载增加容错与超时；
+   - 正文里的界面小图标（「查看图片 / 评论配图 / 超话 / 表情」前面那些 1rem
+     图标、作者头像、站徽 logo）不再被当成正文图片发送，见 data_handler.strip_html_pic；
+   - 新增全局屏蔽词（v1.5.0）：标题/正文的完整原文命中即不推送，开启翻译时译文
+     命中同样不推送；命中的条目静默跳过并写日志，手动 /rss get 不受限制、会在
+     消息开头标注这一条命中的词。
 """
 
 from __future__ import annotations
@@ -68,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.4.1"
+PLUGIN_VERSION = "v1.5.1"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -104,6 +109,9 @@ _TOP_KEYS = {
     "t2i",
     "is_hide_url",
 }
+_BLOCK_KEYS = {"enable", "words"}
+MAX_BLOCK_WORDS = 500  # 屏蔽词条数上限
+MAX_BLOCK_WORD_LEN = 100  # 单个屏蔽词长度上限
 
 
 @register(
@@ -174,6 +182,12 @@ class RssPlugin(Star):
         translate_cfg = cfg.get("translate", {}) or {}
         self.translator.update_config(translate_cfg)
         self.short_link_clean = bool(translate_cfg.get("short_link_clean", True))
+
+        # 屏蔽词：全局一份，命中（原文或译文）即不推送
+        block_cfg = cfg.get("block_words", {}) or {}
+        self.block_enable = self._as_bool(block_cfg.get("enable", True), True)
+        self.block_words = self._normalize_block_words(block_cfg.get("words", []))
+        self._block_words_lower = [word.lower() for word in self.block_words]
 
         self.message_style.update_config(cfg.get("message_style", {}) or {})
 
@@ -347,6 +361,7 @@ class RssPlugin(Star):
                 title_elem = item.xpath("title")
                 title = title_elem[0].text.strip() if title_elem and title_elem[0].text else "无标题"
                 title = self.data_handler.clean_plain_text(title) or "无标题"
+                full_title = title  # 未截断的标题，用于屏蔽词检查
                 if len(title) > self.title_max_length:
                     title = title[: self.title_max_length] + "..."
 
@@ -383,6 +398,11 @@ class RssPlugin(Star):
                     description, pic_url_list = self.data_handler.parse_description(description, url)
                 description = self.data_handler.clean_plain_text(description)
 
+                # 屏蔽词在「截断之前」的完整文本上查，免得关键词落在被切掉的尾巴里
+                block_word, block_where = self._block_scan(
+                    (full_title, "标题"), (description, "正文")
+                )
+
                 if len(description) > self.description_max_length:
                     description = description[: self.description_max_length] + "..."
 
@@ -416,6 +436,8 @@ class RssPlugin(Star):
                             url,
                             video_url,
                             video_covers,
+                            block_word,
+                            block_where,
                         )
                     )
                     cnt += 1
@@ -452,11 +474,69 @@ class RssPlugin(Star):
             return False, 0
         return True, override
 
-    async def _get_chain_components(self, item: RSSItem, umo: Optional[str] = None) -> list:
-        """组装消息链（含内置翻译与可配置的推送样式）。"""
+    def _block_hit(self, *texts) -> str:
+        """返回命中的屏蔽词；没命中返回空串。
+
+        子串匹配，英文不分大小写（中文没有词边界，子串也是最符合直觉的做法）。
+        """
+        if not self.block_enable or not self._block_words_lower:
+            return ""
+        for text in texts:
+            if not text:
+                continue
+            low = str(text).lower()
+            for word in self._block_words_lower:
+                if word in low:
+                    return word
+        return ""
+
+    def _block_scan(self, *pairs) -> tuple[str, str]:
+        """按顺序检查 ``(文本, 位置)``，返回第一个命中的 ``(屏蔽词, 位置)``。"""
+        for text, where in pairs:
+            word = self._block_hit(text)
+            if word:
+                return word, where
+        return "", ""
+
+    async def _build_chain(
+        self, item: RSSItem, umo: Optional[str] = None, apply_block: bool = True
+    ) -> tuple[list, dict]:
+        """组装消息链（含内置翻译与可配置的推送样式），并报告屏蔽词命中情况。
+
+        Args:
+            apply_block: True（定时推送）时命中屏蔽词返回空消息链，调用方据此跳过；
+                False（手动 ``/rss get``）时只报告、不拦截。
+
+        Returns:
+            ``(comps, block_info)``，``block_info`` 形如
+            ``{"blocked": bool, "word": 命中的词, "where": 标题/正文/译文标题/译文正文}``。
+
+        屏蔽词查两次：**原文**（解析时就查好了，见 ``poll_rss``，覆盖被长度截断掉
+        的部分）与**译文**（原文干净但译文出现屏蔽词时同样不推送）。
+        """
+        info = {"blocked": False, "word": "", "where": ""}
         comps: list = []
         try:
             title = item.title or ""
+            text = item.description or ""
+
+            # 原文命中：直接返回，顺手省掉一次翻译调用。
+            # item.block_word 是 poll_rss 拿「未截断」的完整文本查出来的（关键词
+            # 落在被长度截掉的那段里也能拦住），这里再按当前配置查一遍标题/正文，
+            # 保证即使条目不是 poll_rss 造出来的、或解析后配置又被改过，也不会漏。
+            hit, where = self._block_scan((title, "标题"), (text, "正文"))
+            if not hit and item.block_word:
+                hit, where = item.block_word, item.block_where or "原文"
+            if hit:
+                info.update(blocked=True, word=hit, where=where)
+                if apply_block:
+                    logger.info(
+                        "rss: %s 命中屏蔽词「%s」（%s），跳过推送", item.link, hit, where
+                    )
+                    return [], info
+
+            title_translated = False
+            text_translated = False
             if (
                 self.show_title
                 and title
@@ -465,14 +545,29 @@ class RssPlugin(Star):
                 and self.translator.should_translate(item.link, title)
             ):
                 title = await self.translator.translate(title, umo=umo)
+                title_translated = True
 
-            text = item.description or ""
             if self.translator.enabled and self.translator.should_translate(item.link, text):
                 translated = await self.translator.translate(text, umo=umo)
                 if translated:
                     text = translated
+                    text_translated = True
                     if self.short_link_clean:
                         text = self._replace_first_url(text, item.description, item.link)
+
+            # 译文命中：和原文一样不推送
+            hit, where = self._block_scan(
+                (title if title_translated else "", "译文标题"),
+                (text if text_translated else "", "译文正文"),
+            )
+            if hit:
+                if not info["blocked"]:
+                    info.update(blocked=True, word=hit, where=where)
+                if apply_block:
+                    logger.info(
+                        "rss: %s 命中屏蔽词「%s」（%s），跳过推送", item.link, hit, where
+                    )
+                    return [], info
 
             # 视频封面：位置由模板里的 {video_cover} 决定
             cover_urls = list(item.video_covers) if self.show_video_info else []
@@ -536,6 +631,11 @@ class RssPlugin(Star):
         except Exception as exc:  # noqa: BLE001
             logger.error("组装消息链失败: %s", exc)
             comps = [Comp.Plain(f"消息组装失败: {exc}")]
+        return comps, info
+
+    async def _get_chain_components(self, item: RSSItem, umo: Optional[str] = None) -> list:
+        """组装消息链；命中屏蔽词时返回空列表（定时推送据此跳过）。"""
+        comps, _ = await self._build_chain(item, umo=umo, apply_block=True)
         return comps
 
     async def _append_image(self, comps: list, pic_url: str, item: RSSItem) -> None:
@@ -623,16 +723,21 @@ class RssPlugin(Star):
             return translated
 
     async def _send_items(self, user: str, rss_items: List[RSSItem]) -> None:
-        """按平台规则推送条目。"""
+        """按平台规则推送条目；命中屏蔽词的条目直接跳过（不推送、只在日志里交代）。"""
         if not rss_items:
             return
         parts = user.split(":", 2)
         platform_name = parts[0] if len(parts) == 3 else ""
 
+        skipped: list[RSSItem] = []
+
         if platform_name == "aiocqhttp" and self.is_compose:
             nodes = []
             for item in rss_items:
-                comps = await self._get_chain_components(item, umo=user)
+                comps, _ = await self._build_chain(item, umo=user)
+                if not comps:  # 命中屏蔽词
+                    skipped.append(item)
+                    continue
                 nodes.append(Comp.Node(uin=0, name="Astrbot", content=comps))
             if nodes:
                 await self.context.send_message(
@@ -640,10 +745,21 @@ class RssPlugin(Star):
                 )
         else:
             for item in rss_items:
-                comps = await self._get_chain_components(item, umo=user)
+                comps, _ = await self._build_chain(item, umo=user)
+                if not comps:  # 命中屏蔽词
+                    skipped.append(item)
+                    continue
                 await self.context.send_message(
                     user, MessageChain(chain=comps, use_t2i_=self.t2i)
                 )
+
+        if skipped:
+            logger.info(
+                "rss: %s 有 %d 条内容命中屏蔽词被跳过：%s",
+                user,
+                len(skipped),
+                "、".join(f"{it.block_word}({it.block_where})" for it in skipped[:5]),
+            )
 
     async def cron_task_callback(self, url: str, user: str) -> None:
         """定时任务回调。"""
@@ -1030,6 +1146,9 @@ class RssPlugin(Star):
     async def get_command(self, event: AstrMessageEvent, idx: int):
         """获取指定订阅的最新内容
 
+        这是**手动**指令，屏蔽词不拦截：即使这条内容在定时推送时会被屏蔽，
+        这里也照常发出来，并在最前面标注这一条命中了哪个屏蔽词，方便调试。
+
         Args:
             idx: 要查看的订阅索引，可通过/rss list查看
         """
@@ -1053,7 +1172,12 @@ class RssPlugin(Star):
                 return
             platform_name = parts[0]
 
-            comps = await self._get_chain_components(item, umo=user)
+            comps, block_info = await self._build_chain(item, umo=user, apply_block=False)
+
+            notice = self._block_notice(block_info)
+            if notice:
+                comps = [Comp.Plain(notice)] + list(comps)
+
             if platform_name == "aiocqhttp" and self.is_compose:
                 node = Comp.Node(uin=0, name="Astrbot", content=comps)
                 yield event.chain_result([node]).use_t2i(self.t2i)
@@ -1062,6 +1186,23 @@ class RssPlugin(Star):
         except Exception as exc:  # noqa: BLE001
             logger.error("获取订阅内容失败: %s", exc)
             yield event.plain_result(f"获取失败: {exc}")
+
+    def _block_notice(self, block_info: dict) -> str:
+        """``/rss get`` 开头的屏蔽词提示（没有命中就返回空串）。
+
+        只讲**这一次真正发出去的那条**：它命中了哪个词、平时为什么收不到。
+        不去统计这一批抓取里还有多少条会被拦下——``/rss get`` 本来只输出一条，
+        整批的条数对不上号，那种提示只会变成噪音。
+        """
+        if not self.block_enable or not self._block_words_lower:
+            return ""
+        if not block_info.get("blocked"):
+            return ""
+        return (
+            f"⚠️ 本条命中屏蔽词「{block_info.get('word', '')}」"
+            f"（{block_info.get('where', '原文')}），定时推送会跳过这 1 条；"
+            "本次是手动 /rss get，照常发送。"
+        )
 
     @rss.command("pic")
     async def pic_command(self, event: AstrMessageEvent, idx: int, limit: str):
@@ -1228,6 +1369,10 @@ class RssPlugin(Star):
                 "is_adjust_pic": self.is_adjust_pic,
                 "max_pic_item": self.max_pic_item,
             },
+            "block_words": {
+                "enable": getattr(self, "block_enable", True),
+                "words": list(getattr(self, "block_words", [])),
+            },
             "message_style": self.message_style.to_dict(),
         }
 
@@ -1254,6 +1399,37 @@ class RssPlugin(Star):
             return max(minimum, min(maximum, float(value)))
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _normalize_block_words(raw: Any) -> list[str]:
+        """把屏蔽词收敛成「去空白、按大小写去重」的列表。
+
+        兼容三种写法：list（插件页面 / 配置文件）、以及用换行或逗号分隔的字符串。
+        匹配时统一转小写，所以这里保留用户原始大小写只用于回显。
+        """
+        if isinstance(raw, str):
+            chunks: list[str] = re.split(r"[\n\r,，;；]+", raw)
+        elif isinstance(raw, (list, tuple, set)):
+            chunks = []
+            for entry in raw:
+                chunks.extend(re.split(r"[\n\r,，;；]+", str(entry)))
+        else:
+            return []
+
+        words: list[str] = []
+        seen: set[str] = set()
+        for chunk in chunks:
+            word = str(chunk).strip()[:MAX_BLOCK_WORD_LEN]
+            if not word:
+                continue
+            low = word.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            words.append(word)
+            if len(words) >= MAX_BLOCK_WORDS:
+                break
+        return words
 
     def _sanitize_config(self, payload: dict) -> dict:
         """把页面传来的配置收敛成合法值（只接受白名单键）。"""
@@ -1283,6 +1459,18 @@ class RssPlugin(Star):
                 else:
                     pic[key] = self._as_int(pic_payload[key], pic[key], -1, 50)
             result["pic_config"] = pic
+
+        block_payload = payload.get("block_words")
+        if isinstance(block_payload, dict):
+            block = dict(current["block_words"])
+            for key in _BLOCK_KEYS:
+                if key not in block_payload:
+                    continue
+                if key == "enable":
+                    block[key] = self._as_bool(block_payload[key], block[key])
+                else:
+                    block[key] = self._normalize_block_words(block_payload[key])
+            result["block_words"] = block
 
         tr_payload = payload.get("translate")
         if isinstance(tr_payload, dict):

@@ -1,217 +1,245 @@
 {
-    "show_title": {
-        "description": "推送时是否显示文章标题",
+  "show_title": {
+    "description": "推送时是否显示文章标题",
+    "type": "bool",
+    "hint": "开启后消息里会带上该条内容的标题。",
+    "default": true
+  },
+  "show_video_info": {
+    "description": "视频帖：推送封面图与视频链接",
+    "type": "bool",
+    "hint": "开启后：微博视频帖的封面图会随消息发出（它有自己的开关，完全不受「是否读取rss链接中的图片」和「每次最大图片数量」影响——那两个设置只管正文里的图片，所以把图片上限设成 0 也照样发封面（连封面都不要就本开关关闭）；RSSHub 没给出封面时插件还会调用微博 H5 接口补一张，8 秒超时、失败不影响推送），视频播放页链接会填进模板变量 {video}。封面和正文图一起受每条订阅的图片上限约束，且封面优先、不会被上限裁掉；该订阅若显式填了 0（不发图），封面也不发。关闭后视频帖按旧行为处理——封面图和视频链接都不会出现。",
+    "obvious_hint": true,
+    "default": true
+  },
+  "title_max_length": {
+    "description": "推送的标题最大长度，超过会被截取",
+    "type": "int",
+    "hint": "推送的标题最大长度。",
+    "obvious_hint": true,
+    "default": 30
+  },
+  "description_max_length": {
+    "description": "推送的描述最大长度，超过会被截取",
+    "type": "int",
+    "hint": "推送的描述最大长度。截取会同时影响翻译前的文本长度上限。",
+    "obvious_hint": true,
+    "default": 500
+  },
+  "max_items_per_poll": {
+    "description": "每次获取的最大条目数。",
+    "type": "int",
+    "hint": "每次获取的最大条目数。 -1 表示不限制。",
+    "obvious_hint": true,
+    "default": 3
+  },
+  "compose": {
+    "description": "（仅限qq）是否将消息合并，以转发的方式组合发送",
+    "type": "bool",
+    "hint": "是否将消息合并，以转发的方式组合发送。",
+    "default": true
+  },
+  "t2i": {
+    "description": "是否需要将文字转换为图片发送",
+    "type": "bool",
+    "hint": "订阅中的图片内容会丢失。",
+    "default": false
+  },
+  "is_hide_url": {
+    "description": "是否隐藏链接",
+    "type": "bool",
+    "hint": "如果设置为 true 则在推送的消息中不显示链接。（解决发送链接导致风控）",
+    "obvious_hint": true,
+    "default": false
+  },
+  "message_style": {
+    "description": "推送文本样式（改这里即可自定义推送外观，无需改代码）",
+    "type": "object",
+    "hint": "推送消息的排版模板。模板变量：{chan_title} 频道名、{title} 标题、{content} 正文、{link} 链接、{video} 视频播放页链接、{video_cover} 视频封面图的插入位置（后两者不是视频帖时为空）、{pub_date} 发布时间、{feed_url} 订阅源地址。把 {video_cover} 单独放一行，封面图就插在那个位置（正文前/后都行）；不写它就还是老样子——封面作为第一张图跟在文字后面。分隔线（默认 ---）就是模板里的普通文字，想换或想删直接改模板。一行里用到的变量全是空的话（没标题时的 {title}、不是视频帖时的 {video}）这一行会整行消失，所以「视频：{video}」这种写法不会留下光秃秃的标签。正文会自动做智能换行与长度截断。",
+    "obvious_hint": true,
+    "items": {
+      "template": {
+        "description": "消息模板（显示链接时）",
+        "type": "text",
+        "default": "{chan_title} 更新了喵❤\n---\n{title}\n内容：{content}\n视频：{video}\n\n链接：{link}\n---",
+        "hint": "整条推送的样子。比 v1.3.4 多了一行「视频：{video}」：不是视频帖时这一行整行消失，所以普通帖子的排版和以前一模一样。想换说法直接改文字即可，例如把「更新了喵❤」改成「有更新啦」，把 --- 改成 ━━━━ 或删掉。"
+      },
+      "template_hide_url": {
+        "description": "消息模板（隐藏链接时）",
+        "type": "text",
+        "default": "{chan_title} 更新了喵❤\n---\n{title}\n内容：{content}\n---",
+        "hint": "开启「是否隐藏链接」后使用这份模板。里面不要出现 {link} 就不会发链接。"
+      },
+      "smart_break": {
+        "description": "智能换行",
         "type": "bool",
-        "hint": "开启后消息里会带上该条内容的标题。",
-        "default": true
-    },
-    "show_video_info": {
-        "description": "视频帖：推送封面图与视频链接",
+        "default": true,
+        "hint": "开启后：句末标点（内置 。！？!?…）自动断行、英文句子边界断行（Mr. / e.g. 等缩写不会误断）、链接内部绝不换行、话题标签单独成行、多余空行折叠。断句字符是内置规则，不需要也不提供配置。"
+      },
+      "hashtag_own_line": {
+        "description": "话题标签单独成行",
         "type": "bool",
-        "hint": "开启后：微博视频帖的封面图会随消息发出（它有自己的开关，完全不受「是否读取rss链接中的图片」和「每次最大图片数量」影响——那两个设置只管正文里的图片，所以把图片上限设成 0 也照样发封面（连封面都不要就本开关关闭）；RSSHub 没给出封面时插件还会调用微博 H5 接口补一张，8 秒超时、失败不影响推送），视频播放页链接会填进模板变量 {video}。封面和正文图一起受每条订阅的图片上限约束，且封面优先、不会被上限裁掉；该订阅若显式填了 0（不发图），封面也不发。关闭后视频帖按旧行为处理——封面图和视频链接都不会出现。",
-        "obvious_hint": true,
-        "default": true
-    },
-    "title_max_length": {
-        "description": "推送的标题最大长度，超过会被截取",
+        "default": true,
+        "hint": "结尾处一连串的 #话题# 会各自占一行，避免全挤在一行。"
+      },
+      "collapse_blank_lines": {
+        "description": "折叠多余空行",
+        "type": "bool",
+        "default": true,
+        "hint": "连续空行最多保留一个。"
+      },
+      "max_content_length": {
+        "description": "正文长度上限",
         "type": "int",
-        "hint": "推送的标题最大长度。",
-        "obvious_hint": true,
-        "default": 30
-    },
-    "description_max_length": {
-        "description": "推送的描述最大长度，超过会被截取",
-        "type": "int",
-        "hint": "推送的描述最大长度。截取会同时影响翻译前的文本长度上限。",
-        "obvious_hint": true,
-        "default": 500
-    },
-    "max_items_per_poll": {
-        "description": "每次获取的最大条目数。",
-        "type": "int",
-        "hint": "每次获取的最大条目数。 -1 表示不限制。",
-        "obvious_hint": true,
-        "default": 3
-    },
-    "compose": {
-        "description": "（仅限qq）是否将消息合并，以转发的方式组合发送",
-        "type": "bool",
-        "hint": "是否将消息合并，以转发的方式组合发送。",
-        "default": true
-    },
-    "t2i": {
-        "description": "是否需要将文字转换为图片发送",
-        "type": "bool",
-        "hint": "订阅中的图片内容会丢失。",
-        "default": false
-    },
-    "is_hide_url": {
-        "description": "是否隐藏链接",
-        "type": "bool",
-        "hint": "如果设置为 true 则在推送的消息中不显示链接。（解决发送链接导致风控）",
-        "obvious_hint": true,
-        "default": false
-    },
-    "message_style": {
-        "description": "推送文本样式（改这里即可自定义推送外观，无需改代码）",
-        "type": "object",
-        "hint": "推送消息的排版模板。模板变量：{chan_title} 频道名、{title} 标题、{content} 正文、{link} 链接、{video} 视频播放页链接、{video_cover} 视频封面图的插入位置（后两者不是视频帖时为空）、{pub_date} 发布时间、{feed_url} 订阅源地址。把 {video_cover} 单独放一行，封面图就插在那个位置（正文前/后都行）；不写它就还是老样子——封面作为第一张图跟在文字后面。分隔线（默认 ---）就是模板里的普通文字，想换或想删直接改模板。一行里用到的变量全是空的话（没标题时的 {title}、不是视频帖时的 {video}）这一行会整行消失，所以「视频：{video}」这种写法不会留下光秃秃的标签。正文会自动做智能换行与长度截断。",
-        "obvious_hint": true,
-        "items": {
-            "template": {
-                "description": "消息模板（显示链接时）",
-                "type": "text",
-                "default": "{chan_title} 更新了喵❤\n---\n{title}\n内容：{content}\n视频：{video}\n\n链接：{link}\n---",
-                "hint": "整条推送的样子。比 v1.3.4 多了一行「视频：{video}」：不是视频帖时这一行整行消失，所以普通帖子的排版和以前一模一样。想换说法直接改文字即可，例如把「更新了喵❤」改成「有更新啦」，把 --- 改成 ━━━━ 或删掉。"
-            },
-            "template_hide_url": {
-                "description": "消息模板（隐藏链接时）",
-                "type": "text",
-                "default": "{chan_title} 更新了喵❤\n---\n{title}\n内容：{content}\n---",
-                "hint": "开启「是否隐藏链接」后使用这份模板。里面不要出现 {link} 就不会发链接。"
-            },
-            "smart_break": {
-                "description": "智能换行",
-                "type": "bool",
-                "default": true,
-                "hint": "开启后：句末标点（内置 。！？!?…）自动断行、英文句子边界断行（Mr. / e.g. 等缩写不会误断）、链接内部绝不换行、话题标签单独成行、多余空行折叠。断句字符是内置规则，不需要也不提供配置。"
-            },
-            "hashtag_own_line": {
-                "description": "话题标签单独成行",
-                "type": "bool",
-                "default": true,
-                "hint": "结尾处一连串的 #话题# 会各自占一行，避免全挤在一行。"
-            },
-            "collapse_blank_lines": {
-                "description": "折叠多余空行",
-                "type": "bool",
-                "default": true,
-                "hint": "连续空行最多保留一个。"
-            },
-            "max_content_length": {
-                "description": "正文长度上限",
-                "type": "int",
-                "default": 200,
-                "hint": "超过后会截断并加省略号；截断会尽量停在句子结束处，不会把链接切成两半。填 0 或 -1 表示不限制（此时只受「推送的描述最大长度」约束）。"
-            },
-            "pic_error": {
-                "description": "图片读取失败文案",
-                "type": "string",
-                "default": "图片链接读取失败",
-                "hint": "推送里图片抓取失败时显示的提示文字。"
-            },
-            "pic_error_detail": {
-                "description": "图片处理异常文案",
-                "type": "string",
-                "default": "图片处理失败: {url}",
-                "hint": "处理图片时抛出异常显示的提示文字，{url} 会被替换成图片地址。"
-            }
-        }
-    },
-    "translate": {
-        "description": "AI 翻译（内置，无需额外 API Key）",
-        "type": "object",
-        "hint": "直接复用 AstrBot 已配置的大语言模型进行翻译。推荐在插件页面中配置。",
-        "items": {
-            "enable": {
-                "description": "启用翻译",
-                "type": "bool",
-                "hint": "关闭后不会对任何内容发起翻译请求。",
-                "default": true
-            },
-            "provider_id": {
-                "description": "翻译使用的模型提供商",
-                "type": "string",
-                "default": "",
-                "_special": "select_provider",
-                "hint": "留空表示使用当前会话绑定的模型，若会话没有绑定则使用 AstrBot 默认模型。"
-            },
-            "target_lang": {
-                "description": "翻译目标语言",
-                "type": "string",
-                "options": ["中文", "English", "日本語", "한국어", "Русский"],
-                "default": "中文",
-                "hint": "翻译结果使用的语言。"
-            },
-            "sources": {
-                "description": "需要翻译的域名关键词",
-                "type": "list",
-                "default": ["x.com", "twitter.com"],
-                "hint": "链接或正文命中其中任意一个关键词时才会翻译，留空表示全部翻译。"
-            },
-            "max_chars": {
-                "description": "单条内容翻译的最大字符数",
-                "type": "int",
-                "default": 1500,
-                "hint": "超出部分会被截断，避免消耗过多 token。"
-            },
-            "timeout": {
-                "description": "翻译超时时间（秒）",
-                "type": "int",
-                "default": 40,
-                "hint": "超时后保留原文，不影响消息推送。"
-            },
-            "temperature": {
-                "description": "翻译采样温度",
-                "type": "float",
-                "default": 0.2,
-                "hint": "建议保持较低数值（0~0.3）以获得更稳定的译文。"
-            },
-            "cache_size": {
-                "description": "翻译缓存条数",
-                "type": "int",
-                "default": 256,
-                "hint": "相同内容重复推送时直接命中缓存，0 表示不缓存。"
-            },
-            "keep_original_on_fail": {
-                "description": "翻译失败时保留原文",
-                "type": "bool",
-                "default": true,
-                "hint": "关闭后翻译失败会推送空内容，一般保持开启。"
-            },
-            "skip_if_translated": {
-                "description": "已是目标语言时跳过翻译",
-                "type": "bool",
-                "default": true,
-                "hint": "例如原文已经是中文且目标语言是中文时，不再调用模型。"
-            },
-            "translate_title": {
-                "description": "同时翻译标题",
-                "type": "bool",
-                "default": false,
-                "hint": "开启后标题也会一起翻译。"
-            },
-            "short_link_clean": {
-                "description": "清理正文里的跟踪参数",
-                "type": "bool",
-                "default": true,
-                "hint": "把正文中的第一个外链去除 utm_* 等跟踪参数后再展示。"
-            }
-        }
-    },
-    "pic_config": {
-        "description": "图片相关配置",
-        "type": "object",
-        "hint": "用于配置图片相关的参数",
-        "items": {
-            "is_read_pic": {
-                "description": "是否读取rss链接中的图片（全局默认）",
-                "hint": "全局默认开关，只管正文里的图片；视频帖的封面图由「视频帖：推送封面图与视频链接」单独控制。单个订阅可以在插件页面「订阅管理」里单独覆盖（也可用 /rss pic 指令）。",
-                "type": "bool",
-                "default": false
-            },
-            "is_adjust_pic": {
-                "description": "是否对图片进行防和谐处理",
-                "hint": "如果设置为 true 会自动在读取到的图片中的任意四个角的像素点上加上一个随机的像素点",
-                "type": "bool",
-                "default": false
-            },
-            "max_pic_item": {
-                "description": "每次获取的最大图片条目数（全局默认）",
-                "hint": "全局默认值，-1 表示不限制，0 表示不发正文图片。每个订阅可以在插件页面「订阅管理」里单独设置：留空跟随此值，0 表示该订阅不发正文图片，-1 表示不限制。此设置只约束正文图片，视频帖封面图不受影响。",
-                "type": "int",
-                "default": 3
-            }
-        }
+        "default": 200,
+        "hint": "超过后会截断并加省略号；截断会尽量停在句子结束处，不会把链接切成两半。填 0 或 -1 表示不限制（此时只受「推送的描述最大长度」约束）。"
+      },
+      "pic_error": {
+        "description": "图片读取失败文案",
+        "type": "string",
+        "default": "图片链接读取失败",
+        "hint": "推送里图片抓取失败时显示的提示文字。"
+      },
+      "pic_error_detail": {
+        "description": "图片处理异常文案",
+        "type": "string",
+        "default": "图片处理失败: {url}",
+        "hint": "处理图片时抛出异常显示的提示文字，{url} 会被替换成图片地址。"
+      }
     }
+  },
+  "translate": {
+    "description": "AI 翻译（内置，无需额外 API Key）",
+    "type": "object",
+    "hint": "直接复用 AstrBot 已配置的大语言模型进行翻译。推荐在插件页面中配置。",
+    "items": {
+      "enable": {
+        "description": "启用翻译",
+        "type": "bool",
+        "hint": "关闭后不会对任何内容发起翻译请求。",
+        "default": true
+      },
+      "provider_id": {
+        "description": "翻译使用的模型提供商",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider",
+        "hint": "留空表示使用当前会话绑定的模型，若会话没有绑定则使用 AstrBot 默认模型。"
+      },
+      "target_lang": {
+        "description": "翻译目标语言",
+        "type": "string",
+        "options": [
+          "中文",
+          "English",
+          "日本語",
+          "한국어",
+          "Русский"
+        ],
+        "default": "中文",
+        "hint": "翻译结果使用的语言。"
+      },
+      "sources": {
+        "description": "需要翻译的域名关键词",
+        "type": "list",
+        "default": [
+          "x.com",
+          "twitter.com"
+        ],
+        "hint": "链接或正文命中其中任意一个关键词时才会翻译，留空表示全部翻译。"
+      },
+      "max_chars": {
+        "description": "单条内容翻译的最大字符数",
+        "type": "int",
+        "default": 1500,
+        "hint": "超出部分会被截断，避免消耗过多 token。"
+      },
+      "timeout": {
+        "description": "翻译超时时间（秒）",
+        "type": "int",
+        "default": 40,
+        "hint": "超时后保留原文，不影响消息推送。"
+      },
+      "temperature": {
+        "description": "翻译采样温度",
+        "type": "float",
+        "default": 0.2,
+        "hint": "建议保持较低数值（0~0.3）以获得更稳定的译文。"
+      },
+      "cache_size": {
+        "description": "翻译缓存条数",
+        "type": "int",
+        "default": 256,
+        "hint": "相同内容重复推送时直接命中缓存，0 表示不缓存。"
+      },
+      "keep_original_on_fail": {
+        "description": "翻译失败时保留原文",
+        "type": "bool",
+        "default": true,
+        "hint": "关闭后翻译失败会推送空内容，一般保持开启。"
+      },
+      "skip_if_translated": {
+        "description": "已是目标语言时跳过翻译",
+        "type": "bool",
+        "default": true,
+        "hint": "例如原文已经是中文且目标语言是中文时，不再调用模型。"
+      },
+      "translate_title": {
+        "description": "同时翻译标题",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后标题也会一起翻译。"
+      },
+      "short_link_clean": {
+        "description": "清理正文里的跟踪参数",
+        "type": "bool",
+        "default": true,
+        "hint": "把正文中的第一个外链去除 utm_* 等跟踪参数后再展示。"
+      }
+    }
+  },
+  "pic_config": {
+    "description": "图片相关配置",
+    "type": "object",
+    "hint": "用于配置图片相关的参数",
+    "items": {
+      "is_read_pic": {
+        "description": "是否读取rss链接中的图片（全局默认）",
+        "hint": "全局默认开关，只管正文里的图片；视频帖的封面图由「视频帖：推送封面图与视频链接」单独控制。单个订阅可以在插件页面「订阅管理」里单独覆盖（也可用 /rss pic 指令）。",
+        "type": "bool",
+        "default": false
+      },
+      "is_adjust_pic": {
+        "description": "是否对图片进行防和谐处理",
+        "hint": "如果设置为 true 会自动在读取到的图片中的任意四个角的像素点上加上一个随机的像素点",
+        "type": "bool",
+        "default": false
+      },
+      "max_pic_item": {
+        "description": "每次获取的最大图片条目数（全局默认）",
+        "hint": "全局默认值，-1 表示不限制，0 表示不发正文图片。每个订阅可以在插件页面「订阅管理」里单独设置：留空跟随此值，0 表示该订阅不发正文图片，-1 表示不限制。此设置只约束正文图片，视频帖封面图不受影响。",
+        "type": "int",
+        "default": 3
+      }
+    }
+  },
+  "block_words": {
+    "description": "屏蔽词：正文或标题命中则不推送",
+    "type": "object",
+    "hint": "全局一份屏蔽词，定时推送时生效。子串匹配、英文不区分大小写；标题或正文命中即不推送，开启翻译时译文命中同样不推送。手动指令 /rss get 不受限制，会照常发送并标注命中的屏蔽词。",
+    "items": {
+      "enable": {
+        "description": "启用屏蔽词",
+        "hint": "关掉后完全不做屏蔽词检查（列表保留，方便随时再打开）。",
+        "type": "bool",
+        "default": true
+      },
+      "words": {
+        "description": "屏蔽词列表（每行一个）",
+        "hint": "子串匹配，英文不区分大小写，例如填「抽奖」会拦下「转发抽奖」。最多 500 条。",
+        "type": "list",
+        "default": []
+      }
+    }
+  }
 }

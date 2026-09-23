@@ -29,6 +29,7 @@
         <button class="tab" data-tab="style">推送样式</button>
         <button class="tab" data-tab="translate">翻译</button>
         <button class="tab" data-tab="picture">图片</button>
+        <button class="tab" data-tab="block">屏蔽词</button>
         <button class="tab" data-tab="subs">订阅管理</button>
         <button class="tab" data-tab="rsshub">RSSHub</button>
         <button class="tab" data-tab="tools">状态 / 工具</button>
@@ -292,6 +293,35 @@
               <span>每次最大图片数量（全局默认值）</span>
               <input type="number" min="-1" max="50" data-path="pic_config.max_pic_item" data-type="int" />
               <small>-1 表示不限制，0 表示不发正文图片。单个订阅可以在「订阅管理」页签里单独覆盖这个值。视频帖的封面图不受这里影响。</small>
+            </label>
+          </div>
+        </section>
+
+        <!-- ================================ 屏蔽词 ================================ -->
+        <section class="panel" data-panel="block">
+          <div class="card">
+            <h2>屏蔽词</h2>
+            <p class="hint">
+              标题或正文命中列表里的任意一个词，这条内容就<strong>不推送</strong>（只在日志里交代一句）。
+              开启翻译时，译文里出现屏蔽词同样不推送。
+              <br />
+              匹配是<strong>子串匹配、英文不区分大小写</strong>：填 <code>抽奖</code> 会拦下「转发抽奖」，
+              填 <code>spoiler</code> 会拦下「Spoiler alert」。
+            </p>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" data-path="block_words.enable" data-type="bool" />
+                <span>启用屏蔽词</span>
+              </label>
+            </div>
+            <label class="field full">
+              <span>屏蔽词列表（每行一个）</span>
+              <textarea rows="8" spellcheck="false" data-path="block_words.words" data-type="list" placeholder="抽奖&#10;广告&#10;spoiler"></textarea>
+              <small>
+                子串匹配，英文不区分大小写；最多 500 条，单个词最长 100 字。
+                手动指令 <code>/rss get &lt;订阅序号&gt;</code> 不受屏蔽词限制：它会照常把内容发出来，
+                并在开头标注这一条命中了哪个屏蔽词，方便你调试。
+              </small>
             </label>
           </div>
         </section>

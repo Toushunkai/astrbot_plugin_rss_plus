@@ -3,6 +3,6 @@ display_name: RSS 订阅增强版
 short_desc: RSS 订阅 + 定时推送 + 内置 AI 翻译 + 可配置推送样式
 desc: RSS 订阅增强版：RSSHub 路由 / 直链订阅、定时推送、每条订阅独立配置、内置 AI 翻译（复用 AstrBot 模型，无需额外 API Key）、可配置的推送文本样式（含智能换行）以及 WebUI 插件配置页。
 help: https://github.com/Toushunkai/astrbot_plugin_rss_plus
-version: v1.4.1
+version: v1.5.1
 author: Soulter
 repo: https://github.com/Toushunkai/astrbot_plugin_rss_plus
