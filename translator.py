@@ -24,6 +24,8 @@ __all__ = ["TranslatorService"]
 
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+# 平假名 / 片假名：出现它就基本可以断定是日文，而不是「已经是中文」
+_KANA_RE = re.compile(r"[\u3040-\u30ff]")
 
 _DEFAULT_SYSTEM_PROMPT = (
     "你是一个专业的翻译引擎。请把用户输入的内容翻译成{target_lang}，"
@@ -44,7 +46,7 @@ class TranslatorService:
         self.enabled: bool = True
         self.provider_id: str = ""
         self.target_lang: str = "中文"
-        self.sources: list[str] = ["x.com", "twitter.com"]
+        self.sources: list[str] = ["twitter"]
         self.max_chars: int = 1500
         self.timeout: int = 40
         self.temperature: float = 0.2
@@ -84,12 +86,17 @@ class TranslatorService:
         self._trim_cache()
 
     # ------------------------------------------------------------------ 工具
-    def should_translate(self, link: str = "", text: str = "") -> bool:
-        """是否需要对这条内容发起翻译。"""
+    def should_translate(self, link: str = "", text: str = "", feed_url: str = "") -> bool:
+        """是否需要对这条内容发起翻译。
+
+        关键词按「**订阅地址** → 原文链接 → 正文前 200 字」匹配，命中任意一个就翻译。
+        想整条订阅都翻译，就把关键词写成**订阅地址里的一段**：例如订阅
+        ``http://192.168.1.133:1200/twitter/user/psn_jp_status`` 时填 ``twitter``。
+        """
         if not self.enabled:
             return False
         if self.sources:
-            target = f"{link} {text[:200]}".lower()
+            target = f"{feed_url}\n{link}\n{text[:200]}".lower()
             if not any(s in target for s in self.sources):
                 return False
         return True
@@ -103,6 +110,9 @@ class TranslatorService:
         cjk = len(_CJK_RE.findall(text))
         latin = len(_LATIN_RE.findall(text))
         if self.target_lang.lower() in ("中文", "chinese", "zh", "zh-cn", "简体中文"):
+            # 有假名就是日文：日文里汉字很多，光看汉字占比会把它误判成中文而跳过翻译
+            if len(_KANA_RE.findall(text)) >= 4:
+                return True
             # 中文占比已经很高就不翻译
             return not (cjk >= 10 and cjk >= latin * 0.6)
         return True

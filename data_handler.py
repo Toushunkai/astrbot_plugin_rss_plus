@@ -725,6 +725,32 @@ class DataHandler:
         return match.group(1) if match else ""
 
     @staticmethod
+    def same_weibo_pic(url_a: str, url_b: str) -> bool:
+        """两个微博图片地址是不是**同一张图**的不同编码。
+
+        微博同一张图会有多种规格（``large`` / ``orj480`` / ``mw2000`` …），
+        文件名不同（各自的 file id 不同）但**规格后缀相同**，例如::
+
+            large/006BjBn1ly1ihmidhfgu5j30ku0rsjr8.jpg
+            orj480/006BjBn1ly1ihmidhhnulj30ku0rsjr8.jpg   ← 后缀都是 30ku0rsjr8
+
+        多视频帖的封面（pics）与 <video> 的 poster 就是这样一对，用它来判断重复。
+        """
+        def stem(url: str) -> str:
+            name = str(url or "").split("?")[0].rsplit("/", 1)[-1]
+            return name.rsplit(".", 1)[0].lower()
+
+        a, b = stem(url_a), stem(url_b)
+        if not a or not b:
+            return False
+        # 从尾部往前数公共后缀长度：规格后缀（如 30ku0rsjr8）必然一致，
+        # 前面的 file id 不同，所以只要公共后缀够长就是同一张图。
+        common = 0
+        while common < min(len(a), len(b)) and a[-1 - common] == b[-1 - common]:
+            common += 1
+        return common >= 8
+
+    @staticmethod
     def clean_video_url(url: str) -> str:
         """去掉视频播放页链接里的跟踪参数。
 

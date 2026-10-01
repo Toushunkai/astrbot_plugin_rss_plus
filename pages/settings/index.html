@@ -89,24 +89,8 @@
             <h2>推送文本样式</h2>
             <p class="hint">
               推送消息长什么样，全部由下面的模板决定，改完保存立即生效，不需要改代码。
-              模板变量：
-              <code>{chan_title}</code> 频道名 ·
-              <code>{title}</code> 标题 ·
-              <code>{content}</code> 正文 ·
-              <code>{link}</code> 链接 ·
-              <code>{video}</code> 视频播放页链接 ·
-              <code>{video_cover}</code> 视频封面图位置 ·
-              <code>{pub_date}</code> 发布时间 ·
-              <code>{feed_url}</code> 订阅源地址。
-              <br />
-              分隔线（默认 <code>---</code>）就是模板里的一行普通文字，想换成 <code>━━━━</code> 或整行删掉，直接改模板。
-              <br />
-              <strong>视频封面图放哪儿也由你定</strong>：把 <code>{video_cover}</code> 单独放一行，封面图就插在那个位置
-              （正文前、正文后、链接前都行）；不写它就还是老样子——封面作为第一张图跟在文字后面。不是视频帖时这一行会整行消失。
-              <br />
-              <strong>一行里用到的变量全是空的话，这一行会整行消失</strong>：所以
-              <code>{title}</code> 在没标题时、<code>视频：{video}</code> 在不是视频帖时，
-              都会连标签一起消失，不会留下空行或光秃秃的「视频：」。
+              分隔线（默认 <code>---</code>）也只是模板里的一行普通文字，想换成 <code>━━━━</code> 或整行删掉直接改。
+              可用变量见下方「模板变量速查」。
             </p>
             <label class="field full">
               <span>消息模板（显示链接时）</span>
@@ -119,6 +103,11 @@
               <small>开启「隐藏链接」后使用这份模板，里面不写 {link} 就不会发链接。</small>
             </label>
             <div class="grid">
+              <label class="field">
+                <span>多段视频的补充说明（{video_note}）</span>
+                <input type="text" data-path="message_style.video_note" data-type="string" />
+                <small>只在一条帖有<b>多段</b>视频时出现（<code>{video_count}</code> 会替换成段数）；单段视频时为空，所以「视频{video_note}：{video}」在单视频帖里显示成「视频：链接」。留空 = 不要这句。</small>
+              </label>
               <label class="field">
                 <span>正文长度上限</span>
                 <input type="number" min="-1" max="20000" data-path="message_style.max_content_length" data-type="int" />
@@ -149,6 +138,54 @@
                 <span>折叠多余空行（最多保留一个空行）</span>
               </label>
             </div>
+          </div>
+
+          <div class="card">
+            <h2>模板变量速查</h2>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr><th>变量</th><th>作用</th><th>放哪里</th><th>空值时</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><code>{chan_title}</code></td><td>频道名</td><td>文字中间</td><td class="muted">—</td></tr>
+                  <tr><td><code>{title}</code></td><td>文章标题</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr><td><code>{content}</code></td><td>正文（已智能换行 + 截断）</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr><td><code>{link}</code></td><td>原文链接</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr><td><code>{video}</code></td><td>视频播放页链接（已去跟踪参数）</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr><td><code>{video_count}</code></td><td>这条帖有几段视频（单视频帖 <code>1</code>、多视频帖 <code>N</code>）</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr><td><code>{video_note}</code></td><td>多段视频时才出现的补充说明（内容见「多段视频的补充说明」）</td><td>文字中间</td><td>空（单段视频时不出现）</td></tr>
+                  <tr><td><code>{pub_date}</code></td><td>发布时间</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr><td><code>{feed_url}</code></td><td>订阅源地址</td><td>文字中间</td><td>整行消失</td></tr>
+                  <tr>
+                    <td><code>{video_cover}</code></td>
+                    <td><b>视频封面图</b>（只放 <code>{video}</code> 那一段的封面）</td>
+                    <td><b>单独一行</b></td>
+                    <td>整行消失（也不发封面图）</td>
+                  </tr>
+                  <tr>
+                    <td><code>{images}</code></td>
+                    <td><b>正文图片</b>（多张图共用这一个位置，<b>永远不含视频封面</b>）</td>
+                    <td><b>单独一行</b></td>
+                    <td>整行消失</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="hint">
+              <b>空值规则</b>：一行里用到的变量全是空的，这一行就整行消失——所以没标题时的 <code>{title}</code>、
+              普通帖的 <code>视频：{video}</code>、没有图时的 <code>{images}</code>，都不会留下空行或光秃秃的标签。
+              <br />
+              <b>图片位置</b>：把 <code>{video_cover}</code>（视频封面）/ <code>{images}</code>（正文图片）单独放一行，图片就插在那一行（消息会被切成「文字 → 图 → 文字」几段）。
+              <b>图片位置完全由模板决定，没写位置就不发</b>：写了 <code>{video_cover}</code> 才发视频封面，写了 <code>{images}</code> 才发正文图片；
+              两个都不写时，<b>整条消息一张图都没有</b>。两个位置严格分开，封面绝不会混进 <code>{images}</code>；
+              即便同一条地址既是封面又是正文图，也只按封面处理（不会在 <code>{images}</code> 里重复出现）。
+              多视频帖（一帖多段小视频）里，正文那批 <code>&lt;img&gt;</code> 其实是各段视频的封面：<code>{images}</code> 保持为空，
+              <code>{video_cover}</code> 只放<b>与 <code>{video}</code> 链接对应的那一段</b>，其余段的封面不发送；
+              一共几段可以用 <code>{video_count}</code> 写出来。
+              <br />
+              不认识的 <code>{xxx}</code> 会原样保留，不会报错。
+            </p>
           </div>
 
           <div class="card">
@@ -238,9 +275,14 @@
               </label>
             </div>
             <label class="field full">
-              <span>需要翻译的域名关键词（每行一个）</span>
-              <textarea rows="3" data-path="translate.sources" data-type="list" placeholder="x.com&#10;twitter.com"></textarea>
-              <small>链接或正文命中任一关键词才翻译；全部删除表示翻译所有订阅内容。</small>
+              <span>需要翻译的订阅地址 / 域名关键词（每行一个）</span>
+              <textarea rows="3" data-path="translate.sources" data-type="list" placeholder="twitter&#10;weibo"></textarea>
+              <small>
+                按「<b>订阅地址</b> → 原文链接 → 正文前 200 字」匹配，命中任一关键词才翻译。
+                想让某条订阅整个都翻译，关键词就写<b>订阅地址里的一段</b>：订阅
+                <code>http://192.168.1.133:1200/twitter/user/psn_jp_status</code> 时填 <code>twitter</code> 即可。
+                全部删除表示翻译所有订阅内容。
+              </small>
             </label>
             <div class="switches">
               <label class="switch">

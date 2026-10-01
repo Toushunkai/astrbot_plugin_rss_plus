@@ -469,9 +469,14 @@ async function onPreviewStyle(e) {
     show(box);
     box.textContent = data.text || '（空结果）';
     const tpl = data.used_template === 'template_hide_url' ? '隐藏链接模板' : '显示链接模板';
-    const coverHint = data.cover_placeholder
-      ? '封面按 {video_cover} 的位置插入'
-      : '模板里没有 {video_cover}，封面会作为第一张图跟在文字后面';
+    const coverPos = data.cover_placeholder
+      ? '封面按 {video_cover} 插入'
+      : (data.images_placeholder ? '未写 {video_cover}：视频封面不会发送' : '未写 {video_cover}：封面跟在文字后面');
+    const pos = [
+      coverPos,
+      data.images_placeholder ? '正文图按 {images} 插入（不含封面）' : '未写 {images}：正文图跟在最后',
+    ];
+    const coverHint = pos.join(' · ');
     $('#stylePreviewMeta').textContent =
       `${tpl} · 显示标题：${data.show_title ? '是' : '否'} · ${data.line_count} 行 / ${data.char_count} 字 · ${coverHint}`;
   } catch (err) {

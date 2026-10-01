@@ -5,21 +5,30 @@
 段，AstrBot 的插件配置面板（``_conf_schema.json``）和插件页面的「推送样式」页签
 都能直接改，保存后立即生效。
 
-模板变量（写在 ``template`` / ``template_hide_url`` 里）：
+模板变量（写在 ``template`` / ``template_hide_url`` 里）分两类。
 
-    {chan_title}  频道名
-    {title}       标题；单独占一行时，如果没有标题（或关闭了「显示标题」）整行会消失
-    {content}     正文（已经过智能换行与长度截断）
-    {link}        原文链接
-    {video}       视频帖的播放页链接；不是视频帖时为空
-    {video_cover} 视频封面**图片**的插入位置；不是视频帖时整行消失。
-                  不写这个变量时，封面会作为第一张图跟在文字后面（旧行为）
-    {pub_date}    发布时间
-    {feed_url}    订阅源地址
+**文字类**（填在文字中间）：
 
-一行里用到的变量全是空的话（没有标题时的 ``{title}``、不是视频帖时的 ``{video}``），
-这一行会整行消失——所以 ``视频：{video}`` 这种写法不会留下光秃秃的「视频：」，
-也不会多出一个空行。不认识的 ``{xxx}`` 会原样保留，不会报错。
+===============  ==========================================================
+``{chan_title}``  频道名
+``{title}``       标题
+``{content}``     正文，已完成智能换行与长度截断
+``{link}``        原文链接
+``{video}``       视频帖的播放页链接（已去掉跟踪参数）
+``{pub_date}``    发布时间
+``{feed_url}``    订阅源地址
+===============  ==========================================================
+
+**图片位置类**（单独放一行，图片就插在那一行；多张正文图共用 ``{images}`` 一个位置）：
+
+=================  ========================================================
+``{video_cover}``  视频封面图
+``{images}``       正文图片（受「读取图片」与图片上限控制）
+=================  ========================================================
+
+空值规则：**一行里用到的变量全是空的，这一行就整行消失**。所以没标题时的 ``{title}``、
+不是视频帖时的 ``视频：{video}``、没有图时的 ``{images}`` 都不会留下空行或光秃秃的标签。
+没有写位置的图片会跟在整个消息最后（旧行为）。不认识的 ``{xxx}`` 原样保留，不会报错。
 
 分隔线（默认 ``---``）没有单独的配置项，它只是模板里的普通文字，
 想换成 ``━━━━`` 或干脆删掉，直接改模板即可。
@@ -47,7 +56,14 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-__all__ = ["MessageStyle", "DEFAULT_STYLE", "STYLE_KEYS", "DEMO_SAMPLE", "COVER_MARKER"]
+__all__ = [
+    "MessageStyle",
+    "DEFAULT_STYLE",
+    "STYLE_KEYS",
+    "DEMO_SAMPLE",
+    "COVER_MARKER",
+    "IMAGES_MARKER",
+]
 
 # 默认样式：与旧版本硬编码出来的排版完全一致
 DEFAULT_STYLE: dict[str, Any] = {
@@ -72,6 +88,8 @@ DEFAULT_STYLE: dict[str, Any] = {
     "hashtag_own_line": True,
     "collapse_blank_lines": True,
     "max_content_length": 200,
+    # 多段视频帖才出现的补充说明（{video_count} 会被替换成段数）；留空表示不要这句
+    "video_note": "（共 {video_count} 段，全部见原帖）",
     "pic_error": "图片链接读取失败",
     "pic_error_detail": "图片处理失败: {url}",
 }
@@ -79,9 +97,10 @@ DEFAULT_STYLE: dict[str, Any] = {
 # 允许从插件页面 / 配置里修改的键（与 _conf_schema.json 保持一致）
 STYLE_KEYS: tuple[str, ...] = tuple(DEFAULT_STYLE.keys())
 
-# 模板里的 {video_cover} 会替换成这个标记；main.py 据此把视频封面**图片**
-# 插到模板里那个位置（想放哪就放哪：正文前、正文后、链接前……）。
-COVER_MARKER = "\x02"
+# 模板里的图片占位符会被替换成下面这两个标记；main.py 据此把图片插到模板指定位置
+# （想放哪就放哪：正文前、正文后、链接前……）。
+COVER_MARKER = "\x02"   # {video_cover} → 视频封面图
+IMAGES_MARKER = "\x03"  # {images}      → 正文图片（多张图共用这一个位置）
 
 # 句末标点：智能换行遇到它们就断行。属于内置规则，不提供配置项，
 # 想调整断句行为只能从代码这里改（``sentence_end`` 配置项自 v1.3.5 起移除）。
@@ -194,6 +213,10 @@ class MessageStyle:
             self.max_content_length = DEFAULT_STYLE["max_content_length"]
         self.max_content_length = max(-1, min(20000, self.max_content_length))
 
+        # 允许把它写成空串表示「不要这句补充说明」，所以不走 _as_text 的空值回退
+        raw_note = cfg.get("video_note", DEFAULT_STYLE["video_note"])
+        self.video_note = raw_note[:200] if isinstance(raw_note, str) else DEFAULT_STYLE["video_note"]
+
         self.pic_error = _as_text(cfg.get("pic_error"), DEFAULT_STYLE["pic_error"], 200)
         self.pic_error_detail = _as_text(
             cfg.get("pic_error_detail"), DEFAULT_STYLE["pic_error_detail"], 200
@@ -208,6 +231,7 @@ class MessageStyle:
             "hashtag_own_line": self.hashtag_own_line,
             "collapse_blank_lines": self.collapse_blank_lines,
             "max_content_length": self.max_content_length,
+            "video_note": self.video_note,
             "pic_error": self.pic_error,
             "pic_error_detail": self.pic_error_detail,
         }
@@ -225,7 +249,9 @@ class MessageStyle:
         content: str = "",
         link: str = "",
         video: str = "",
+        video_count: int = 0,
         video_cover: bool = False,
+        images: bool = False,
         pub_date: str = "",
         feed_url: str = "",
         show_title: bool = True,
@@ -245,8 +271,16 @@ class MessageStyle:
             "content": self.format_content(content),
             "link": link or "",
             "video": (video or "").strip(),
-            # 有封面就放一个标记，main.py 会在标记处插入图片；没有就当空值（整行消失）
+            "video_count": str(video_count) if video_count else "",
+            # 只有多段视频时才给这句话，单段/无视频为空（整行规则会连带标签一起处理）
+            "video_note": (
+                self.video_note.replace("{video_count}", str(video_count))
+                if video_count >= 2 and self.video_note.strip()
+                else ""
+            ),
+            # 有图就放一个标记，main.py 会在标记处插入图片；没有就当空值（整行消失）
             "video_cover": COVER_MARKER if video_cover else "",
+            "images": IMAGES_MARKER if images else "",
             "pub_date": pub_date or "",
             "feed_url": feed_url or "",
         }
@@ -282,6 +316,13 @@ class MessageStyle:
             out.append(_PLACEHOLDER_RE.sub(_replace, line))
         return "\n".join(out)
 
+    def has_placeholder(self, name: str, hide_url: bool = False) -> bool:
+        """模板里有没有写某个变量（用于决定图片要不要插进这个位置）。"""
+        template = self.template_hide_url if hide_url else self.template
+        if not isinstance(template, str) or not template.strip():
+            template = DEFAULT_STYLE["template_hide_url" if hide_url else "template"]
+        return f"{{{name}}}" in template
+
     def pic_error_text(self, url: str = "") -> str:
         """图片出问题时的提示文案。url 为空表示「读取失败」的通用提示。"""
         if not url:
@@ -303,7 +344,12 @@ class MessageStyle:
         text = text if isinstance(text, str) else str(text or "")
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         # 内部标记与零宽字符不允许出现在原文里
-        text = text.replace(_SOFT_BREAK, "").replace(_STASH_MARK, "").replace(COVER_MARKER, "")
+        text = (
+            text.replace(_SOFT_BREAK, "")
+            .replace(_STASH_MARK, "")
+            .replace(COVER_MARKER, "")
+            .replace(IMAGES_MARKER, "")
+        )
         text = text.replace("\u200b", "").replace("\ufeff", "")
         text = text.replace("\u00a0", " ")
         text = re.sub(r"[ \t]+\n", "\n", text)

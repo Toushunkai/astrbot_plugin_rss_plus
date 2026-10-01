@@ -57,7 +57,7 @@ except Exception:  # noqa: BLE001 - 极老版本兜底
         pass
 
 from .data_handler import DataHandler
-from .message_style import COVER_MARKER
+from .message_style import COVER_MARKER, IMAGES_MARKER
 from .message_style import DEMO_SAMPLE as MESSAGE_STYLE_DEMO
 from .message_style import STYLE_KEYS as _MESSAGE_STYLE_KEYS
 from .message_style import MessageStyle
@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.5.1"
+PLUGIN_VERSION = "v1.5.12"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -542,12 +542,14 @@ class RssPlugin(Star):
                 and title
                 and self.translator.enabled
                 and self.translator.translate_title
-                and self.translator.should_translate(item.link, title)
+                and self.translator.should_translate(item.link, title, item.feed_url)
             ):
                 title = await self.translator.translate(title, umo=umo)
                 title_translated = True
 
-            if self.translator.enabled and self.translator.should_translate(item.link, text):
+            if self.translator.enabled and self.translator.should_translate(
+                item.link, text, item.feed_url
+            ):
                 translated = await self.translator.translate(text, umo=umo)
                 if translated:
                     text = translated
@@ -569,65 +571,114 @@ class RssPlugin(Star):
                     )
                     return [], info
 
-            # 视频封面：位置由模板里的 {video_cover} 决定
+            # ---------------------------------------------------------- 图片
+            # 正文图片：读不读、读几张都听图片设置的
+            read_pic, pic_limit = self._resolve_pic_settings(item.feed_url, umo)
+            body_images: list[str] = []
+            if read_pic and item.pic_urls:
+                picked = list(item.pic_urls)
+                if pic_limit != -1:
+                    picked = picked[: max(0, pic_limit)]
+                body_images = picked
+
+            # 视频封面：只归「视频帖」开关管，不参与图片设置
             cover_urls = list(item.video_covers) if self.show_video_info else []
 
-            # 排版（模板 + 智能换行 + 截断）全部交给 message_style，
-            # 样式可以在配置文件 / 插件页面里改，不需要动代码。
+            # 多视频帖：微博不允许图文混排，一条帖要么是图片、要么是视频。
+            # 所以当「<video> 的 poster 与正文某张 <img> 是同一张图」时，说明整批 <img>
+            # 其实是各段视频的封面（微博 API 里 pics[].type='video'，RSSHub 渲染时丢了类型）。
+            #
+            # 但我们只拿得到**一段**视频的播放页链接（RSSHub 每条帖只渲染一个 <video>），
+            # 所以 {video_cover} 也只放「那一段」的封面：优先用正文里那张清晰图（large），
+            # 它与 poster 是同一张图；其余段的封面没有链接对应，不发送、也不进 {images}。
+            video_total = len(cover_urls)
+
+            if self.show_video_info and cover_urls and body_images:
+                matched = [
+                    u for u in body_images
+                    if any(self.data_handler.same_weibo_pic(v, u) for v in cover_urls)
+                ]
+                if matched:
+                    video_total = len(body_images)
+                    logger.info(
+                        "rss: 多视频帖（共 %s 段）：正文里 %s 张 <img> 都是视频封面，"
+                        "只保留有播放页链接的那一段封面",
+                        video_total, len(body_images),
+                    )
+                    cover_urls = [matched[0]]
+                    body_images = []
+
+            # 同一个地址既当封面又当正文图时（RSSHub 的 <video poster> 与 <img> 用同一张图），
+            # 只按封面处理：保证 {images} 里永远不会出现视频封面。
+            if cover_urls:
+                cover_url_set = set(cover_urls)
+                body_images = [p for p in body_images if p not in cover_url_set]
+
+            # 图片位置**完全由模板决定**，两个占位严格分开、没写位置就不发：
+            #   {video_cover} —— 视频封面图的专属位置；没写就不发封面
+            #   {images}      —— 正文图片的位置（多张共用）；没写就不发正文图
+            # 两个都不写 = 整条消息一张图都不发。
+
+            cover_slot = self.message_style.has_placeholder("video_cover", hide_url=self.is_hide_url)
+            images_slot = self.message_style.has_placeholder("images", hide_url=self.is_hide_url)
+
+            # 两个位置都可以放多张图：{video_cover} 单视频帖是 1 张，多视频帖是各段视频的封面
+            inline_covers: list[str] = list(cover_urls) if cover_slot else []
+            if cover_slot:
+                cover_urls = []
+            inline_images: list[str] = list(body_images) if images_slot else []
+
+            if inline_covers or inline_images:
+                logger.info(
+                    "rss: 图片位置 → {images}: %s 张正文图；{video_cover}: %s 张视频封面",
+                    len(inline_images), len(inline_covers),
+                )
+            if cover_urls:
+                logger.info(
+                    "rss: 模板里没有 {video_cover} 位置，本次不发 %s 张视频封面", len(cover_urls)
+                )
+            if body_images and not images_slot:
+                logger.info(
+                    "rss: 模板里没有 {images} 位置，本次不发 %s 张正文图片", len(body_images)
+                )
+
+            # ---------------------------------------------------------- 排版
+            # 模板 + 智能换行 + 截断都在 message_style 里；图片位置用 {video_cover} / {images} 指定
             rendered = self.message_style.render(
                 chan_title=item.chan_title,
                 title=title,
                 content=text,
                 link=item.link,
                 video=item.video_url if self.show_video_info else "",
-                video_cover=bool(cover_urls),
+                video_count=video_total if self.show_video_info else 0,
+                video_cover=bool(inline_covers),
+                images=bool(inline_images),
                 pub_date=item.pubDate,
                 feed_url=item.feed_url,
                 show_title=self.show_title,
                 hide_url=self.is_hide_url,
             )
 
-            inline_cover = ""
-            if cover_urls and COVER_MARKER in rendered:
-                inline_cover = cover_urls.pop(0)  # 这张插进模板指定的位置
-
-            # 按标记切开：文字 → 封面图 → 文字 …
-            pieces = rendered.split(COVER_MARKER)
-            for index, piece in enumerate(pieces):
-                if index > 0:
-                    await self._append_image(comps, inline_cover, item)
-                if index < len(pieces) - 1 and piece.endswith("\n"):
-                    piece = piece[:-1]  # 标记自己占的那一行换行不算
-                if index > 0 and piece.startswith("\n"):
-                    piece = piece[1:]
-                if piece:
-                    comps.append(Comp.Plain(piece))
-
-            read_pic, pic_limit = self._resolve_pic_settings(item.feed_url, umo)
-
-            # 图片列表，顺序：视频封面 → 正文图片
-            #
-            # 视频封面**只**归「视频帖：推送封面图与视频链接」开关管：
-            #   · 不受「读取图片」开关影响（那个开关只管正文图片，默认还是关的）；
-            #   · 不参与「每次最大图片数量」，所以上限设成 0 也照样发封面
-            #     （上游的 0 只表示「正文图片不发」；连封面都不要就关掉视频帖开关）。
-            images: list[str] = list(cover_urls)
-
-            # 正文图片照旧：读不读、读几张都听图片设置的
-            if read_pic and item.pic_urls:
-                body_pics = list(item.pic_urls)
-                if pic_limit != -1:
-                    body_pics = body_pics[: max(0, pic_limit)]
-                images.extend(body_pics)
-
-            # 去重（保持顺序）
-            deduped: list[str] = []
-            for pic_url in images:
-                if pic_url not in deduped:
-                    deduped.append(pic_url)
-
-            for pic_url in deduped:
-                await self._append_image(comps, pic_url, item)
+            # 按标记把文案切成「文字 → 图片 → 文字 …」，图片只插在模板指定的位置
+            tokens = re.split(rf"({COVER_MARKER}|{IMAGES_MARKER})", rendered)
+            for index, token in enumerate(tokens):
+                if token == COVER_MARKER:
+                    for pic_url in inline_covers:
+                        await self._append_image(comps, pic_url, item)
+                    continue
+                if token == IMAGES_MARKER:
+                    for pic_url in inline_images:
+                        await self._append_image(comps, pic_url, item)
+                    continue
+                if not token:
+                    continue
+                # 标记自己占的那一行换行不算
+                if index > 0 and token.startswith("\n"):
+                    token = token[1:]
+                if index < len(tokens) - 1 and token.endswith("\n"):
+                    token = token[:-1]
+                if token:
+                    comps.append(Comp.Plain(token))
         except Exception as exc:  # noqa: BLE001
             logger.error("组装消息链失败: %s", exc)
             comps = [Comp.Plain(f"消息组装失败: {exc}")]
@@ -1836,14 +1887,19 @@ class RssPlugin(Star):
         show_title = self._as_bool(payload.get("show_title"), self.show_title)
         hide_url = self._as_bool(payload.get("is_hide_url"), self.is_hide_url)
         # 预览里把封面位置显示成一个可见的占位说明
-        text = style.render(show_title=show_title, hide_url=hide_url, video_cover=True, **values)
+        text = style.render(
+            show_title=show_title, hide_url=hide_url, video_cover=True, images=True, **values
+        )
         cover_placeholder = COVER_MARKER in text
+        images_placeholder = IMAGES_MARKER in text
         text = text.replace(COVER_MARKER, "🖼（视频封面图会插在这里）")
+        text = text.replace(IMAGES_MARKER, "🖼（正文图片会插在这里）")
         return json_response(
             {
                 "ok": True,
                 "text": text,
                 "cover_placeholder": cover_placeholder,
+                "images_placeholder": images_placeholder,
                 "style": style.to_dict(),
                 "used_template": "template_hide_url" if hide_url else "template",
                 "show_title": show_title,
