@@ -103,8 +103,22 @@ COVER_MARKER = "\x02"   # {video_cover} → 视频封面图
 IMAGES_MARKER = "\x03"  # {images}      → 正文图片（多张图共用这一个位置）
 
 # 句末标点：智能换行遇到它们就断行。属于内置规则，不提供配置项，
-# 想调整断句行为只能从代码这里改（``sentence_end`` 配置项自 v1.3.5 起移除）。
+# 想调整断句行为只能从代码这里改（``sentence_end`` 配置项自 v1.5.5 起移除）。
 SENTENCE_END = "。！？!?…"
+
+# 成对括号 / 引号：内部不因句末标点断行（微博标题常写成「【独家！视频】」，
+# 从中间劈开会很难看）；只有整段引用本身超过 QUOTE_MAX 字才允许内部断行。
+BRACKET_PAIRS = {"“": "”", "‘": "’", "「": "」", "『": "』", "（": "）", "(": ")", "【": "】", "《": "》"}
+BRACKET_CLOSERS = set(BRACKET_PAIRS.values())
+# 判断「引用是否以句子收尾」时，英文句号 / 叹号 / 问号也算
+_SENTENCE_TAIL = set(SENTENCE_END) | {".", "!", "?"}
+BRACKET_OPENERS = set(BRACKET_PAIRS.keys())
+QUOTE_MAX = 60           # 引用超过这个字数才允许在内部断句
+QUOTE_OWN_LINE_MIN = 24  # 引语长于这个字数时，让它从「：」后另起一行
+
+# 转发结构：微博的「转发 @某人：正文」头与「//@某人：」转发链，断行后好读得多
+FORWARD_HEAD_RE = re.compile(r"(?:转发|轉發|Repost)\s*@[\w.\-·]{1,32}[：:]")
+FORWARD_CHAIN_RE = re.compile(r"[ \t]*//@")
 
 # v1.3.3 里独立配置项 separator 的默认值；老配置迁移时用它兜底
 LEGACY_SEPARATOR = "---"
@@ -394,25 +408,25 @@ class MessageStyle:
 
         text = _URL_RE.sub(_stash, text)
 
-        # 2) 句末标点后换行（允许一段标点 + 收尾引号，尾随空格被吃掉）
-        cls = re.escape(SENTENCE_END)
-        text = re.sub(
-            rf"([{cls}]+[”’\"'』」）】\]]*)[ \t]*(?=\S)",
-            lambda m: m.group(1) + _SOFT_BREAK,
-            text,
-        )
+        # 2) 转发结构断行：转发头之后、//@ 之前
+        text = FORWARD_HEAD_RE.sub(lambda m: m.group(0) + _SOFT_BREAK, text)
+        text = FORWARD_CHAIN_RE.sub(_SOFT_BREAK + "//@", text)
 
-        # 3) 英文句子边界
-        text = _EN_SENT_RE.sub(self._break_english, text)
+        # 3) 句末标点后换行（括号/引号内部不断，收尾引号跟随，尾随空格吃掉）
+        text = self._break_sentences(text)
 
-        # 4) 话题标签单独成行
+        # 4) 英文句子边界（同样受括号 / 引号保护）
+        forbid_en, _ = self._bracket_info(text)
+        text = _EN_SENT_RE.sub(lambda m: self._break_english(m, forbid_en), text)
+
+        # 5) 话题标签单独成行
         if self.hashtag_own_line:
             text = self._break_hashtags(text)
 
-        # 5) 合并软换行、清理空行与行尾空格
+        # 6) 合并软换行、清理空行与行尾空格
         text = _BREAK_RUN_RE.sub(self._merge_breaks, text)
 
-        # 6) 还原链接
+        # 7) 还原链接
         text = re.sub(
             rf"{_STASH_MARK}(\d+){_STASH_MARK}",
             lambda m: stash[int(m.group(1))] if int(m.group(1)) < len(stash) else "",
@@ -420,10 +434,93 @@ class MessageStyle:
         )
         return text
 
-    def _break_english(self, match: "re.Match") -> str:
-        """英文句子边界：缩写、单个字母缩写保持不断行。"""
+    @staticmethod
+    def _bracket_info(text: str) -> tuple[list[bool], dict[int, int]]:
+        """扫描成对括号 / 引号。
+
+        Returns:
+            ``(forbid, span_len)``：
+            ``forbid[i]`` 为 True 表示第 i 个字符处在「短的」引用内部，不允许在此断句；
+            ``span_len[start]`` 是每个左括号到配对右括号的长度（引语判长用）。
+        """
+        forbid = [False] * len(text)
+        span_len: dict[int, int] = {}
+        stack: list[tuple[str, int]] = []
+        for i, ch in enumerate(text):
+            if ch in BRACKET_OPENERS:
+                stack.append((ch, i))
+            elif ch in BRACKET_CLOSERS:
+                for k in range(len(stack) - 1, -1, -1):
+                    opener, start = stack[k]
+                    if BRACKET_PAIRS[opener] == ch:
+                        del stack[k]
+                        span_len[start] = i - start + 1
+                        if i - start + 1 <= QUOTE_MAX:
+                            for j in range(start, i + 1):
+                                forbid[j] = True
+                        break
+        # 没闭合的左括号：到结尾为止，短的话也不要在里面断
+        for _opener, start in stack:
+            if len(text) - start <= QUOTE_MAX:
+                for j in range(start, len(text)):
+                    forbid[j] = True
+        return forbid, span_len
+
+    def _break_sentences(self, text: str) -> str:
+        """句末标点后断行；括号 / 引号内部不断，长引语可以另起一行。"""
+        forbid, span_len = self._bracket_info(text)
+        out: list[str] = []
+        i, n = 0, len(text)
+        while i < n:
+            ch = text[i]
+
+            # 「：」+ 长引语 → 引语另起一行（短引语不拆，免得两三行都是零碎）
+            if ch in "：:" and i + 1 < n and text[i + 1] in "“「『":
+                if span_len.get(i + 1, 0) >= QUOTE_OWN_LINE_MIN:
+                    out.append(ch)
+                    out.append(_SOFT_BREAK)
+                    i += 1
+                    continue
+
+            out.append(ch)
+
+            # 右括号收尾：整段引用以句末标点（含英文 . ! ?）结束时，在它之后断行
+            if ch in BRACKET_CLOSERS and i > 0 and text[i - 1] in _SENTENCE_TAIL:
+                j = i + 1
+                while j < n and text[j] in BRACKET_CLOSERS:
+                    out.append(text[j])
+                    j += 1
+                k = j
+                while k < n and text[k] in " \t":
+                    k += 1
+                if k < n and text[k] not in SENTENCE_END:
+                    out.append(_SOFT_BREAK)
+                i = j
+                continue
+
+            # 句末标点：短引用内部不断，外面照断（收尾引号 / 括号跟随标点）
+            if ch in SENTENCE_END and not forbid[i]:
+                j = i + 1
+                while j < n and text[j] in BRACKET_CLOSERS:
+                    out.append(text[j])
+                    j += 1
+                k = j
+                while k < n and text[k] in " \t":
+                    k += 1
+                if k < n and text[k] not in SENTENCE_END:
+                    out.append(_SOFT_BREAK)
+                i = j
+                continue
+
+            i += 1
+        return "".join(out)
+
+    def _break_english(self, match: "re.Match", forbid: Optional[list[bool]] = None) -> str:
+        """英文句子边界：缩写、单个字母缩写、短引用内部都保持不断行。"""
         source = match.string
         punct = match.start() - 1
+        if forbid and 0 <= punct < len(forbid) and forbid[punct]:
+            return match.group(0)  # 短括号 / 引号内部不断
         start = punct - 1
         while start >= 0 and (source[start].isalpha() or source[start] == "."):
             start -= 1

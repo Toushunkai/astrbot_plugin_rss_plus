@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.5.12"
+PLUGIN_VERSION = "v1.6.1"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -116,10 +116,10 @@ MAX_BLOCK_WORD_LEN = 100  # 单个屏蔽词长度上限
 
 @register(
     PLUGIN_NAME,
-    "Soulter",
+    "Toushunkai",
     "RSS订阅增强版（内置 AI 翻译 + 插件配置页）",
     PLUGIN_VERSION,
-    "https://github.com/Soulter/astrbot_plugin_rss",
+    "https://github.com/Toushunkai/astrbot_plugin_rss_plus",
 )
 class RssPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig) -> None:
