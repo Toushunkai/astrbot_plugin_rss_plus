@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.6.1"
+PLUGIN_VERSION = "v1.6.2"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -593,20 +593,22 @@ class RssPlugin(Star):
             # 它与 poster 是同一张图；其余段的封面没有链接对应，不发送、也不进 {images}。
             video_total = len(cover_urls)
 
-            if self.show_video_info and cover_urls and body_images:
+            # 判定与计数都用**未裁剪**的 item.pic_urls：封面归「视频帖」开关管，
+            # 不该因为「读取图片」关闭或图片上限太小而影响封面清晰度与段数。
+            if self.show_video_info and cover_urls and item.pic_urls:
                 matched = [
-                    u for u in body_images
+                    u for u in item.pic_urls
                     if any(self.data_handler.same_weibo_pic(v, u) for v in cover_urls)
                 ]
                 if matched:
-                    video_total = len(body_images)
+                    video_total = len(item.pic_urls)
                     logger.info(
                         "rss: 多视频帖（共 %s 段）：正文里 %s 张 <img> 都是视频封面，"
                         "只保留有播放页链接的那一段封面",
-                        video_total, len(body_images),
+                        video_total, len(item.pic_urls),
                     )
                     cover_urls = [matched[0]]
-                    body_images = []
+                    body_images = []  # 这批 <img> 全是视频封面，不进 {images}
 
             # 同一个地址既当封面又当正文图时（RSSHub 的 <video poster> 与 <img> 用同一张图），
             # 只按封面处理：保证 {images} 里永远不会出现视频封面。
