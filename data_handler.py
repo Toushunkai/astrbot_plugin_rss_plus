@@ -66,9 +66,9 @@ class DataHandler:
                 return
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(LEGACY_DATA_FILE, self.config_path)
-            logger.info("rss: 已将旧数据 %s 迁移到 %s", LEGACY_DATA_FILE, self.config_path)
+            logger.info("RSS: 已将旧数据 %s 迁移到 %s", LEGACY_DATA_FILE, self.config_path)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("rss: 迁移旧数据失败: %s", exc)
+            logger.warning("RSS: 迁移旧数据失败: %s", exc)
 
     def load_data(self) -> dict:
         """从数据文件中加载数据，文件不存在或损坏时回退到默认结构。"""
@@ -82,7 +82,7 @@ class DataHandler:
                 raw = json.load(f)
             self.data = raw if isinstance(raw, dict) else json.loads(json.dumps(self.default_config))
         except Exception as exc:  # noqa: BLE001
-            logger.error("rss: 读取数据文件失败，使用空数据: %s", exc)
+            logger.error("RSS: 读取数据文件失败，使用空数据: %s", exc)
             self.data = json.loads(json.dumps(self.default_config))
         self._ensure_shape()
         return self.data
@@ -100,7 +100,7 @@ class DataHandler:
                 json.dump(self.data, f, indent=2, ensure_ascii=False)
             os.replace(tmp_path, self.config_path)
         except Exception as exc:  # noqa: BLE001
-            logger.error("rss: 保存数据失败: %s", exc)
+            logger.error("RSS: 保存数据失败: %s", exc)
 
     # ------------------------------------------------------------------ 查询
     @staticmethod

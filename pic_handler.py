@@ -371,7 +371,7 @@ class RssImageHandler:
                 accepted = self._accept_payload(outcome)
                 if accepted.ok:
                     if attempts:
-                        logger.info("rss: 图片改用「%s」后读取成功 %s", label, url)
+                        logger.info("RSS: 图片改用「%s」后读取成功 %s", label, url)
                     return accepted
                 outcome = accepted
             last = outcome
@@ -416,7 +416,7 @@ class RssImageHandler:
                 img.save(output, format="JPEG", quality=90)
                 return output.getvalue()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("rss: 防和谐处理失败，改为原图发送: %s", exc)
+            logger.warning("RSS: 防和谐处理失败，改为原图发送: %s", exc)
             return raw
 
     async def fetch_image_base64(self, image_url: str, base_url: str = "") -> tuple[Optional[str], str]:
@@ -433,7 +433,7 @@ class RssImageHandler:
         """兼容旧调用：返回 Base64 字符串，失败返回 None。"""
         base64str, reason = await self.fetch_image_base64(image_url, base_url)
         if not base64str:
-            logger.warning("rss: 图片读取失败 %s: %s", image_url, reason)
+            logger.warning("RSS: 图片读取失败 %s: %s", image_url, reason)
         return base64str
 
     # ------------------------------------------------------------------ 诊断

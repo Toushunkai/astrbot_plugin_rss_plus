@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.6.2"
+PLUGIN_VERSION = "v1.6.3"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -280,20 +280,20 @@ class RssPlugin(Star):
                 try:
                     async with session.get(url) as resp:
                         if resp.status != 200:
-                            logger.error("rss: 无法正常打开站点 %s，状态码: %s", url, resp.status)
+                            logger.error("RSS: 无法正常打开站点 %s，状态码: %s", url, resp.status)
                             await asyncio.sleep(1)
                             continue
                         return await resp.read()
                 except asyncio.TimeoutError:
-                    logger.warning("rss: 请求站点 %s 超时，重试第 %s/%s 次", url, retry + 1, max_retry)
+                    logger.warning("RSS: 请求站点 %s 超时，重试第 %s/%s 次", url, retry + 1, max_retry)
                     await asyncio.sleep(1)
                 except aiohttp.ClientError as exc:
-                    logger.warning("rss: 请求站点 %s 网络错误: %s，重试第 %s/%s 次", url, exc, retry + 1, max_retry)
+                    logger.warning("RSS: 请求站点 %s 网络错误: %s，重试第 %s/%s 次", url, exc, retry + 1, max_retry)
                     await asyncio.sleep(1)
                 except Exception as exc:  # noqa: BLE001
-                    logger.error("rss: 请求站点 %s 发生未知错误: %s", url, exc)
+                    logger.error("RSS: 请求站点 %s 发生未知错误: %s", url, exc)
                     return None
-        logger.error("rss: 请求站点 %s 重试 %s 次后仍失败", url, max_retry)
+        logger.error("RSS: 请求站点 %s 重试 %s 次后仍失败", url, max_retry)
         return None
 
     def smart_clean_url(self, url: str) -> str:
@@ -328,18 +328,18 @@ class RssPlugin(Star):
         """
         text = raw_text if raw_text is not None else await self.parse_channel_info(url)
         if text is None:
-            logger.error("rss: 无法解析站点 %s 的RSS信息", url)
+            logger.error("RSS: 无法解析站点 %s 的RSS信息", url)
             return []
 
         try:
             root = etree.fromstring(text)
         except Exception as exc:  # noqa: BLE001
-            logger.error("rss: 解析XML失败 %s: %s", url, exc)
+            logger.error("RSS: 解析XML失败 %s: %s", url, exc)
             return []
 
         items = root.xpath("//item")
         if not items:
-            logger.info("rss: 站点 %s 无内容", url)
+            logger.info("RSS: 站点 %s 无内容", url)
             return []
 
         cnt = 0
@@ -391,7 +391,7 @@ class RssPlugin(Star):
                             video_covers.append(cover)
                     if video_covers or video_url:
                         logger.info(
-                            "rss: 视频帖 %s 封面 %s 张、播放页 %s",
+                            "RSS: 视频帖 %s 封面 %s 张、播放页 %s",
                             link, len(video_covers), video_url or "-",
                         )
                     # 正文与正文图片（不含视频封面）
@@ -445,7 +445,7 @@ class RssPlugin(Star):
                     # RSS 通常按时间倒序，遇到旧内容直接结束
                     break
             except Exception as exc:  # noqa: BLE001
-                logger.error("rss: 解析Rss条目失败 %s: %s", url, exc)
+                logger.error("RSS: 解析 RSS 条目失败 %s: %s", url, exc)
                 continue
 
         return rss_items
@@ -531,7 +531,7 @@ class RssPlugin(Star):
                 info.update(blocked=True, word=hit, where=where)
                 if apply_block:
                     logger.info(
-                        "rss: %s 命中屏蔽词「%s」（%s），跳过推送", item.link, hit, where
+                        "RSS: %s 命中屏蔽词「%s」（%s），跳过推送", item.link, hit, where
                     )
                     return [], info
 
@@ -567,7 +567,7 @@ class RssPlugin(Star):
                     info.update(blocked=True, word=hit, where=where)
                 if apply_block:
                     logger.info(
-                        "rss: %s 命中屏蔽词「%s」（%s），跳过推送", item.link, hit, where
+                        "RSS: %s 命中屏蔽词「%s」（%s），跳过推送", item.link, hit, where
                     )
                     return [], info
 
@@ -603,7 +603,7 @@ class RssPlugin(Star):
                 if matched:
                     video_total = len(item.pic_urls)
                     logger.info(
-                        "rss: 多视频帖（共 %s 段）：正文里 %s 张 <img> 都是视频封面，"
+                        "RSS: 多视频帖（共 %s 段）：正文里 %s 张 <img> 都是视频封面，"
                         "只保留有播放页链接的那一段封面",
                         video_total, len(item.pic_urls),
                     )
@@ -632,16 +632,16 @@ class RssPlugin(Star):
 
             if inline_covers or inline_images:
                 logger.info(
-                    "rss: 图片位置 → {images}: %s 张正文图；{video_cover}: %s 张视频封面",
+                    "RSS: 图片位置 → {images}: %s 张正文图；{video_cover}: %s 张视频封面",
                     len(inline_images), len(inline_covers),
                 )
             if cover_urls:
                 logger.info(
-                    "rss: 模板里没有 {video_cover} 位置，本次不发 %s 张视频封面", len(cover_urls)
+                    "RSS: 模板里没有 {video_cover} 位置，本次不发 %s 张视频封面", len(cover_urls)
                 )
             if body_images and not images_slot:
                 logger.info(
-                    "rss: 模板里没有 {images} 位置，本次不发 %s 张正文图片", len(body_images)
+                    "RSS: 模板里没有 {images} 位置，本次不发 %s 张正文图片", len(body_images)
                 )
 
             # ---------------------------------------------------------- 排版
@@ -702,7 +702,7 @@ class RssPlugin(Star):
             if base64str:
                 comps.append(Comp.Image.fromBase64(base64str))
             else:
-                logger.warning("rss: 图片读取失败 %s：%s", pic_url, reason)
+                logger.warning("RSS: 图片读取失败 %s：%s", pic_url, reason)
                 comps.append(Comp.Plain(f"{self.message_style.pic_error_text()}\n"))
         except Exception as exc:  # noqa: BLE001
             logger.warning("处理图片失败 %s: %s", pic_url, exc)
@@ -751,13 +751,13 @@ class RssPlugin(Star):
                         if cover.startswith("//"):
                             cover = "https:" + cover
         except Exception as exc:  # noqa: BLE001 - 兜底失败不影响推送
-            logger.info("rss: 视频封面接口查询失败 %s: %s", oid, exc)
+            logger.info("RSS: 视频封面接口查询失败 %s: %s", oid, exc)
 
         if len(self._video_cover_cache) >= 256:
             self._video_cover_cache.clear()
         self._video_cover_cache[oid] = cover
         if cover:
-            logger.info("rss: 视频 %s 的封面由接口补出：%s", oid, cover)
+            logger.info("RSS: 视频 %s 的封面由接口补出：%s", oid, cover)
         return cover
 
     def _replace_first_url(self, translated: str, original: str, link: str) -> str:
@@ -808,7 +808,7 @@ class RssPlugin(Star):
 
         if skipped:
             logger.info(
-                "rss: %s 有 %d 条内容命中屏蔽词被跳过：%s",
+                "RSS: %s 有 %d 条内容命中屏蔽词被跳过：%s",
                 user,
                 len(skipped),
                 "、".join(f"{it.block_word}({it.block_where})" for it in skipped[:5]),
@@ -908,7 +908,7 @@ class RssPlugin(Star):
         is_feed = self._looks_like_feed(text)
         latest_items = await self.poll_rss(url, raw_text=text) if is_feed else []
         if not is_feed:
-            logger.warning("rss: %s 看起来不是 RSS/Atom 源，内容前缀 %r", url, (text or b"")[:120])
+            logger.warning("RSS: %s 看起来不是 RSS/Atom 源，内容前缀 %r", url, (text or b"")[:120])
 
         last_update = int(time.time())
         latest_link = ""
