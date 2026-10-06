@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.6.5"
+PLUGIN_VERSION = "v1.6.6"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -606,6 +606,18 @@ class RssPlugin(Star):
                 if pic_limit != -1:
                     picked = picked[: max(0, pic_limit)]
                 body_images = picked
+                if len(picked) < len(item.pic_urls):
+                    logger.info(
+                        "RSS: 图片上限 %s：正文图 %s 张只发前 %s 张 %s",
+                        pic_limit, len(item.pic_urls), len(picked), item.link,
+                    )
+            elif item.pic_urls:
+                # 源里明明有正文图却没发：把原因写清楚，避免看起来像「图片被吞了」
+                logger.info(
+                    "RSS: 正文图片未发送（%s）：该帖共 %s 张，读取图片=%s、图片上限=%s %s",
+                    "读取图片已关闭" if not read_pic else "图片上限为 0",
+                    len(item.pic_urls), read_pic, pic_limit, item.link,
+                )
 
             # 视频封面：只归「视频帖」开关管，不参与图片设置
             cover_urls = list(item.video_covers) if self.show_video_info else []
@@ -615,12 +627,24 @@ class RssPlugin(Star):
             video_total = item.video_total
 
             # 说明：正文里哪些 <img> 其实是视频封面，已经在解析阶段（poll_rss）按
-            # 「与 poster 同图 / 长宽比与视频一致」判定并剔除，这里只管发什么。
+            # 「与 poster 同图 / 尺寸相同 / 长宽比一致」判定并剔除（只在微博图床上判），
+            # 这里只管发什么。
             # 同一个地址既当封面又当正文图时（RSSHub 的 <video poster> 与 <img> 用同一张图），
             # 只按封面处理：保证 {images} 里永远不会出现视频封面。
-            if cover_urls:
-                cover_url_set = set(cover_urls)
-                body_images = [p for p in body_images if p not in cover_url_set]
+            # 这条去重**只在微博上做**：非微博源（X 等）的 poster 与正文图各归各的，
+            # 正文图片一张都不动。
+            weibo_covers = [
+                u for u in cover_urls if self.data_handler.WEIBO_IMG_HOST_RE.match(u)
+            ]
+            if weibo_covers:
+                weibo_cover_set = set(weibo_covers)
+                same_addr = [p for p in body_images if p in weibo_cover_set]
+                if same_addr:
+                    logger.info(
+                        "RSS: %s 张正文图与视频封面同址，按封面处理、不再进 {images} %s",
+                        len(same_addr), item.link,
+                    )
+                body_images = [p for p in body_images if p not in weibo_cover_set]
 
             # 图片位置**完全由模板决定**，两个占位严格分开、没写位置就不发：
             #   {video_cover} —— 视频封面图的专属位置；没写就不发封面
