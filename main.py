@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.6.3"
+PLUGIN_VERSION = "v1.6.4"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -379,11 +379,15 @@ class RssPlugin(Star):
                 pic_url_list: list[str] = []
                 video_covers: list[str] = []
                 video_url = ""
+                video_total = 0
                 if description:
-                    # 视频帖：封面图与播放页链接必须先取（后面会把整个 video 块当噪音删掉）
+                    # 视频帖：封面图、播放页链接、正文里哪些 <img> 其实是视频封面，
+                    # 都必须在「整个 video 块被当噪音删掉」之前取出来
                     info = self.data_handler.extract_video_info(description, link or url)
                     video_covers = list(info["covers"])
                     video_url = info["video_url"]
+                    video_total = info["video_total"]
+                    pic_covers = list(info["pic_covers"])
                     # RSSHub 没给 poster 时，拿视频 oid 去微博 H5 接口补一张封面
                     if self.show_video_info and not video_covers and info["oid"]:
                         cover = await self._fetch_video_cover_by_oid(info["oid"])
@@ -391,11 +395,22 @@ class RssPlugin(Star):
                             video_covers.append(cover)
                     if video_covers or video_url:
                         logger.info(
-                            "RSS: 视频帖 %s 封面 %s 张、播放页 %s",
-                            link, len(video_covers), video_url or "-",
+                            "RSS: 视频帖 %s（共 %s 段）封面 %s 张、播放页 %s",
+                            link, video_total or 1, len(video_covers), video_url or "-",
                         )
-                    # 正文与正文图片（不含视频封面）
+                    # 正文与正文图片；视频封面不算正文图片
                     description, pic_url_list = self.data_handler.parse_description(description, url)
+                    if self.show_video_info and pic_covers:
+                        pic_url_list = [u for u in pic_url_list if u not in set(pic_covers)]
+                        # {video_cover} 用其中与 poster 同图的那张（清晰图），拿不到就用第一张
+                        sharp = next(
+                            (
+                                u for u in pic_covers
+                                if any(self.data_handler.same_weibo_pic(u, c) for c in video_covers)
+                            ),
+                            "",
+                        )
+                        video_covers = [sharp or pic_covers[0]]
                 description = self.data_handler.clean_plain_text(description)
 
                 # 屏蔽词在「截断之前」的完整文本上查，免得关键词落在被切掉的尾巴里
@@ -424,20 +439,23 @@ class RssPlugin(Star):
                     is_new = True
 
                 if is_new:
+                    # 一律用关键字传参：RSSItem 以后再插字段（video_total 就是插在中间的）
+                    # 也不会把位置参数挤错位
                     rss_items.append(
                         RSSItem(
-                            chan_title,
-                            title,
-                            link,
-                            description,
-                            pub_date,
-                            pub_date_timestamp,
-                            pic_url_list,
-                            url,
-                            video_url,
-                            video_covers,
-                            block_word,
-                            block_where,
+                            chan_title=chan_title,
+                            title=title,
+                            link=link,
+                            description=description,
+                            pubDate=pub_date,
+                            pubDate_timestamp=pub_date_timestamp,
+                            pic_urls=pic_url_list,
+                            feed_url=url,
+                            video_url=video_url,
+                            video_covers=video_covers,
+                            video_total=video_total,
+                            block_word=block_word,
+                            block_where=block_where,
                         )
                     )
                     cnt += 1
@@ -584,32 +602,12 @@ class RssPlugin(Star):
             # 视频封面：只归「视频帖」开关管，不参与图片设置
             cover_urls = list(item.video_covers) if self.show_video_info else []
 
-            # 多视频帖：微博不允许图文混排，一条帖要么是图片、要么是视频。
-            # 所以当「<video> 的 poster 与正文某张 <img> 是同一张图」时，说明整批 <img>
-            # 其实是各段视频的封面（微博 API 里 pics[].type='video'，RSSHub 渲染时丢了类型）。
-            #
-            # 但我们只拿得到**一段**视频的播放页链接（RSSHub 每条帖只渲染一个 <video>），
-            # 所以 {video_cover} 也只放「那一段」的封面：优先用正文里那张清晰图（large），
-            # 它与 poster 是同一张图；其余段的封面没有链接对应，不发送、也不进 {images}。
-            video_total = len(cover_urls)
+            # 这条帖一共几段视频：解析阶段（poll_rss）还原好的真实段数，
+            # 不受「图片上限」影响；{video_count} 与「多段提示」都用它。
+            video_total = item.video_total
 
-            # 判定与计数都用**未裁剪**的 item.pic_urls：封面归「视频帖」开关管，
-            # 不该因为「读取图片」关闭或图片上限太小而影响封面清晰度与段数。
-            if self.show_video_info and cover_urls and item.pic_urls:
-                matched = [
-                    u for u in item.pic_urls
-                    if any(self.data_handler.same_weibo_pic(v, u) for v in cover_urls)
-                ]
-                if matched:
-                    video_total = len(item.pic_urls)
-                    logger.info(
-                        "RSS: 多视频帖（共 %s 段）：正文里 %s 张 <img> 都是视频封面，"
-                        "只保留有播放页链接的那一段封面",
-                        video_total, len(item.pic_urls),
-                    )
-                    cover_urls = [matched[0]]
-                    body_images = []  # 这批 <img> 全是视频封面，不进 {images}
-
+            # 说明：正文里哪些 <img> 其实是视频封面，已经在解析阶段（poll_rss）按
+            # 「与 poster 同图 / 长宽比与视频一致」判定并剔除，这里只管发什么。
             # 同一个地址既当封面又当正文图时（RSSHub 的 <video poster> 与 <img> 用同一张图），
             # 只按封面处理：保证 {images} 里永远不会出现视频封面。
             if cover_urls:
@@ -624,7 +622,8 @@ class RssPlugin(Star):
             cover_slot = self.message_style.has_placeholder("video_cover", hide_url=self.is_hide_url)
             images_slot = self.message_style.has_placeholder("images", hide_url=self.is_hide_url)
 
-            # 两个位置都可以放多张图：{video_cover} 单视频帖是 1 张，多视频帖是各段视频的封面
+            # {video_cover} 这里固定只有 1 张（与 {video} 播放页链接对应的那一段封面，
+            # 解析阶段就已经从正文图里挑好）；{images} 则按图片设置给多张正文图
             inline_covers: list[str] = list(cover_urls) if cover_slot else []
             if cover_slot:
                 cover_urls = []

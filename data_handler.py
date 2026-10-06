@@ -256,6 +256,13 @@ class DataHandler:
     VIDEO_BLOCK_RE = re.compile(r"<\s*video\b[\s\S]*?(?:<\s*/\s*video\s*>|$)", re.I)
     POSTER_ATTR_RE = re.compile(r"""poster\s*=\s*["']([^"']+)["']""", re.I)
     HREF_ATTR_RE = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.I)
+    SRC_ATTR_RE = re.compile(r"""src\s*=\s*["']([^"']+)["']""", re.I)
+    IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.I)
+    IMG_DIM_RE = re.compile(r"""\b(width|height)\s*=\s*["']?(\d+)""", re.I)
+    # 视频真实尺寸（RSSHub 把 mp4 的 template=WxH 一起带出来了）
+    VIDEO_TEMPLATE_RE = re.compile(r"template=(\d+)x(\d+)")
+    # 长宽比与视频相差多少以内算「同一段视频的封面」
+    VIDEO_RATIO_TOLERANCE = 0.12
     # 正文里任何微博视频播放页链接（用于没有 <video> 块 / 块里没有链接时兜底）
     VIDEO_PAGE_URL_RE = re.compile(
         r"https?://[^\s<>\"']*?(?:video\.weibo\.com|h5\.video\.weibo\.com|weibo\.com/tv/show|m\.weibo\.cn/tv)[^\s<>\"']*",
@@ -682,7 +689,14 @@ class DataHandler:
             ``oid`` 是视频号（如 ``1034:5345988664295458``），RSSHub 没给 poster 时
             可以拿它去微博 H5 接口补一张封面。
         """
-        result = {"covers": [], "video_url": "", "oid": ""}
+        result = {
+            "covers": [],
+            "video_url": "",
+            "oid": "",
+            "pic_covers": [],
+            "video_ratio": 0.0,
+            "video_total": 0,
+        }
         if not html:
             return result
 
@@ -711,9 +725,46 @@ class DataHandler:
                     video_url = cleaned
                     break
 
+        # 微博把多段视频的封面塞在 pics 里（pics[].type='video'），RSSHub 渲染成普通
+        # <img> 时丢掉了 type。这里用两个仍然可见的特征还原：
+        #   ① 与 <video poster> 是同一张图（同一张图的规格后缀相同）
+        #   ② 长宽比与视频一致（封面是视频的抽帧，比例必然一致；正文配图往往不同）
+        video_ratio = 0.0
+        match = self.VIDEO_TEMPLATE_RE.search(html)
+        if match:
+            width, height = int(match.group(1)), int(match.group(2))
+            if width and height:
+                video_ratio = width / height
+
+        pic_covers: list[str] = []
+        for tag in self.IMG_TAG_RE.findall(html):
+            src = self.SRC_ATTR_RE.search(tag)
+            if not src:
+                continue
+            url = self._absolutize_url(src.group(1), base_url)
+            if not url or self._is_video_asset(url):
+                continue
+            dims = {k.lower(): int(v) for k, v in self.IMG_DIM_RE.findall(tag)}
+            is_cover = any(self.same_weibo_pic(url, c) for c in covers)
+            if not is_cover and video_ratio and dims.get("width") and dims.get("height"):
+                ratio = dims["width"] / dims["height"]
+                is_cover = abs(ratio - video_ratio) <= self.VIDEO_RATIO_TOLERANCE * video_ratio
+            if is_cover and url not in pic_covers:
+                pic_covers.append(url)
+
+        # 这条帖有几段视频：封面图的数量（poster 与其中一张是同一张图，不重复计）
+        video_total = len(pic_covers)
+        if covers and not any(
+            self.same_weibo_pic(c, u) for c in covers for u in pic_covers
+        ):
+            video_total += len(covers)
+
         result["covers"] = covers
         result["video_url"] = video_url
         result["oid"] = self.video_oid_from_url(video_url)
+        result["pic_covers"] = pic_covers
+        result["video_ratio"] = video_ratio
+        result["video_total"] = video_total
         return result
 
     @classmethod
