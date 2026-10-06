@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.6.4"
+PLUGIN_VERSION = "v1.6.5"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -393,6 +393,14 @@ class RssPlugin(Star):
                         cover = await self._fetch_video_cover_by_oid(info["oid"])
                         if cover:
                             video_covers.append(cover)
+                            # 判定封面要有 poster 当锚点：补到之后再用它重判一次正文里的 <img>
+                            if not pic_covers:
+                                pic_covers = self.data_handler.find_pic_covers(
+                                    description, video_covers, link or url
+                                )
+                                video_total = self.data_handler.count_video_total(
+                                    pic_covers, video_covers
+                                )
                     if video_covers or video_url:
                         logger.info(
                             "RSS: 视频帖 %s（共 %s 段）封面 %s 张、播放页 %s",

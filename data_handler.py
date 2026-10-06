@@ -259,10 +259,19 @@ class DataHandler:
     SRC_ATTR_RE = re.compile(r"""src\s*=\s*["']([^"']+)["']""", re.I)
     IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.I)
     IMG_DIM_RE = re.compile(r"""\b(width|height)\s*=\s*["']?(\d+)""", re.I)
+    # 微博图床：只有这些域名上的 <img> 才可能是微博视频封面。
+    # 其它源（X 的 pbs.twimg.com、博客自建图床…）一律不参与封面判定，
+    # 免得它们的正文图片被当成封面吞掉。
+    WEIBO_IMG_HOST_RE = re.compile(
+        r"^https?://(?:[\w-]+\.)*(?:sinaimg\.cn|weibocdn\.com|weibo\.com|weibo\.cn)(?::\d+)?/",
+        re.I,
+    )
     # 视频真实尺寸（RSSHub 把 mp4 的 template=WxH 一起带出来了）
     VIDEO_TEMPLATE_RE = re.compile(r"template=(\d+)x(\d+)")
-    # 长宽比与视频相差多少以内算「同一段视频的封面」
-    VIDEO_RATIO_TOLERANCE = 0.12
+    # 判定封面时要求的「规格尾码」公共长度（比同图判定更严：8 → 10）
+    COVER_TAIL_MIN = 10
+    # 长宽比允许的偏差（封面是视频抽帧，比例必然一致；2% 已经是像素取整级别的余量）
+    VIDEO_RATIO_TOLERANCE = 0.02
     # 正文里任何微博视频播放页链接（用于没有 <video> 块 / 块里没有链接时兜底）
     VIDEO_PAGE_URL_RE = re.compile(
         r"https?://[^\s<>\"']*?(?:video\.weibo\.com|h5\.video\.weibo\.com|weibo\.com/tv/show|m\.weibo\.cn/tv)[^\s<>\"']*",
@@ -726,38 +735,13 @@ class DataHandler:
                     break
 
         # 微博把多段视频的封面塞在 pics 里（pics[].type='video'），RSSHub 渲染成普通
-        # <img> 时丢掉了 type。这里用两个仍然可见的特征还原：
-        #   ① 与 <video poster> 是同一张图（同一张图的规格后缀相同）
-        #   ② 长宽比与视频一致（封面是视频的抽帧，比例必然一致；正文配图往往不同）
-        video_ratio = 0.0
-        match = self.VIDEO_TEMPLATE_RE.search(html)
-        if match:
-            width, height = int(match.group(1)), int(match.group(2))
-            if width and height:
-                video_ratio = width / height
-
-        pic_covers: list[str] = []
-        for tag in self.IMG_TAG_RE.findall(html):
-            src = self.SRC_ATTR_RE.search(tag)
-            if not src:
-                continue
-            url = self._absolutize_url(src.group(1), base_url)
-            if not url or self._is_video_asset(url):
-                continue
-            dims = {k.lower(): int(v) for k, v in self.IMG_DIM_RE.findall(tag)}
-            is_cover = any(self.same_weibo_pic(url, c) for c in covers)
-            if not is_cover and video_ratio and dims.get("width") and dims.get("height"):
-                ratio = dims["width"] / dims["height"]
-                is_cover = abs(ratio - video_ratio) <= self.VIDEO_RATIO_TOLERANCE * video_ratio
-            if is_cover and url not in pic_covers:
-                pic_covers.append(url)
+        # <img> 时丢掉了 type。判据见 find_pic_covers()：微博图床 + 与 poster 同一张图
+        # + 长宽比吻合，三者同时满足才认，任何一个不满足都当正文图片。
+        video_ratio = self.video_ratio_of(html)
+        pic_covers = self.find_pic_covers(html, covers, base_url)
 
         # 这条帖有几段视频：封面图的数量（poster 与其中一张是同一张图，不重复计）
-        video_total = len(pic_covers)
-        if covers and not any(
-            self.same_weibo_pic(c, u) for c in covers for u in pic_covers
-        ):
-            video_total += len(covers)
+        video_total = self.count_video_total(pic_covers, covers)
 
         result["covers"] = covers
         result["video_url"] = video_url
@@ -768,6 +752,94 @@ class DataHandler:
         return result
 
     @classmethod
+    def count_video_total(cls, pic_covers: list[str], covers: list[str]) -> int:
+        """这条帖有几段视频：封面 ``<img>`` 的张数；``poster`` 若不在其中再算一段。"""
+        total = len(pic_covers or [])
+        covers = [c for c in (covers or []) if c]
+        if covers and not any(
+            cls.same_weibo_pic(c, u) for c in covers for u in (pic_covers or [])
+        ):
+            total += len(covers)
+        return total
+
+    @classmethod
+    def video_ratio_of(cls, html: str) -> float:
+        """取视频真实长宽比（来自 ``<source src="...template=720x960...">``，取不到返回 0）。"""
+        match = cls.VIDEO_TEMPLATE_RE.search(html or "")
+        if not match:
+            return 0.0
+        width, height = int(match.group(1)), int(match.group(2))
+        return width / height if width and height else 0.0
+
+    def find_pic_covers(self, html: str, covers: list[str], base_url: str = "") -> list[str]:
+        """在正文 ``<img>`` 里挑出「其实是视频封面」的那几张。
+
+        微博 API 用 ``pics[].type='video'`` 标记这些图，RSSHub 渲染 ``pics`` 时把类型丢了
+        （源码是 ``pics.filter((pic) => pic.type !== 'livephoto')``，``type='video'`` 照旧
+        渲染成普通 ``<img>``），所以只能从留下的结构反推——而且一条帖只输出**一段**
+        ``<video poster>``，就是 ``{video}`` 那个有播放页链接的片段。
+
+        因此判据分强弱两级，且**全部限定在微博图床**上（X 的 ``pbs.twimg.com`` /
+        ``video.twimg.com``、博客自建图床等永远不会进入判定，正文图片原样保留）：
+
+        * 强证据 ①：``<img>`` 与 ``<video poster>`` 是**同一张图**（文件名规格尾码公共长度
+          ≥ :attr:`COVER_TAIL_MIN`）——即「有播放页链接那一段」的封面；
+        * 强证据 ②：与已确认封面的**像素尺寸完全相同**——同一批封面（同一条视频的其余分段；
+          真实 8 段帖就是 8 张 750×1000，而视频 ``template=720x960``）；
+        * 兜底 ③：一条强证据都没有时（poster 与正文图文件名对不上），才看**长宽比与视频
+          一致**（``<source ... template=WxH>``，容差 2%）。
+
+        强证据一旦命中就**不再**使用兜底 ③：宁可把封面当正文图多发一张，
+        也不把正文图当封面吞掉。``poster`` 不在微博图床、或压根没有 ``poster`` 时不做任何
+        判定——没有锚点就没有确证，交由上游补封面后再判。
+        """
+        anchors = [c for c in (covers or []) if c and self.WEIBO_IMG_HOST_RE.match(c)]
+        if not html or not anchors:
+            return []
+
+        # 候选：正文里位于微博图床、且不是播放图标之类素材的 <img>
+        candidates: list[tuple[str, int, int]] = []
+        for tag in self.IMG_TAG_RE.findall(html):
+            src = self.SRC_ATTR_RE.search(tag)
+            if not src:
+                continue
+            url = self._absolutize_url(src.group(1), base_url)
+            if not url or any(url == seen for seen, _, _ in candidates):
+                continue
+            if not self.WEIBO_IMG_HOST_RE.match(url) or self._is_video_asset(url):
+                continue
+            dims = {k.lower(): int(v) for k, v in self.IMG_DIM_RE.findall(tag)}
+            candidates.append((url, dims.get("width", 0), dims.get("height", 0)))
+        if not candidates:
+            return []
+
+        # ① 与 poster 同一张图 → 就是那一段视频的封面
+        confirmed = [
+            item for item in candidates
+            if any(self.same_weibo_pic(item[0], poster, self.COVER_TAIL_MIN) for poster in anchors)
+        ]
+        # ② 与已确认封面像素尺寸完全相同的，是同一批封面（同一条视频的其余分段）
+        sizes = {(width, height) for _, width, height in confirmed if width and height}
+        if sizes:
+            picked = {url for url, _, _ in confirmed}
+            for url, width, height in candidates:
+                if url not in picked and width and height and (width, height) in sizes:
+                    confirmed.append((url, width, height))
+                    picked.add(url)
+        if confirmed:
+            return [url for url, _, _ in confirmed]
+
+        # ③ 兜底：没有任何强证据时才用长宽比
+        video_ratio = self.video_ratio_of(html)
+        if not video_ratio:
+            return []
+        return [
+            url for url, width, height in candidates
+            if width and height
+            and abs(width / height - video_ratio) <= self.VIDEO_RATIO_TOLERANCE * video_ratio
+        ]
+
+    @classmethod
     def video_oid_from_url(cls, url: str) -> str:
         """从视频播放页链接里抠出 oid（``1034:5345988664295458``）。"""
         if not url:
@@ -776,7 +848,7 @@ class DataHandler:
         return match.group(1) if match else ""
 
     @staticmethod
-    def same_weibo_pic(url_a: str, url_b: str) -> bool:
+    def same_weibo_pic(url_a: str, url_b: str, min_len: int = 8) -> bool:
         """两个微博图片地址是不是**同一张图**的不同编码。
 
         微博同一张图会有多种规格（``large`` / ``orj480`` / ``mw2000`` …），
@@ -786,6 +858,8 @@ class DataHandler:
             orj480/006BjBn1ly1ihmidhhnulj30ku0rsjr8.jpg   ← 后缀都是 30ku0rsjr8
 
         多视频帖的封面（pics）与 <video> 的 poster 就是这样一对，用它来判断重复。
+        ``min_len`` 是要求的公共后缀长度：普通判重 8 位即可，判定「这张 <img> 就是
+        视频封面」时用更严的 :attr:`COVER_TAIL_MIN`。
         """
         def stem(url: str) -> str:
             name = str(url or "").split("?")[0].rsplit("/", 1)[-1]
@@ -799,7 +873,7 @@ class DataHandler:
         common = 0
         while common < min(len(a), len(b)) and a[-1 - common] == b[-1 - common]:
             common += 1
-        return common >= 8
+        return common >= max(1, int(min_len))
 
     @staticmethod
     def clean_video_url(url: str) -> str:
