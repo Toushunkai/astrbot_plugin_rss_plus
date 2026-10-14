@@ -266,6 +266,10 @@ class DataHandler:
         r"^https?://(?:[\w-]+\.)*(?:sinaimg\.cn|weibocdn\.com|weibo\.com|weibo\.cn)(?::\d+)?/",
         re.I,
     )
+    # 微博 API 的 ``pics[].large.url``：``type='video'``（视频封面）指向 ``large/`` 变体，
+    # ``type=None``（普通配图）指向 ``mw2000/`` 变体。实测 56 条真实帖：85 张普通配图
+    # 全是 mw2000，4 条视频帖的 19 张封面全是 large，零例外——这是 API 自己给的区分。
+    WEIBO_COVER_VARIANT_RE = re.compile(r"sinaimg\.cn/large/", re.I)
     # 视频真实尺寸（RSSHub 把 mp4 的 template=WxH 一起带出来了）
     VIDEO_TEMPLATE_RE = re.compile(r"template=(\d+)x(\d+)")
     # 判定封面时要求的「规格尾码」公共长度（比同图判定更严：8 → 10）
@@ -776,22 +780,23 @@ class DataHandler:
 
         微博 API 用 ``pics[].type='video'`` 标记这些图，RSSHub 渲染 ``pics`` 时把类型丢了
         （源码是 ``pics.filter((pic) => pic.type !== 'livephoto')``，``type='video'`` 照旧
-        渲染成普通 ``<img>``），所以只能从留下的结构反推——而且一条帖只输出**一段**
-        ``<video poster>``，就是 ``{video}`` 那个有播放页链接的片段。
+        渲染成普通 ``<img>``），所以只能从留下的结构反推。判定**只在微博图床上**进行
+        （X 的 ``pbs.twimg.com`` / ``video.twimg.com``、博客自建图床等永不参与）。
 
-        因此判据分强弱两级，且**全部限定在微博图床**上（X 的 ``pbs.twimg.com`` /
-        ``video.twimg.com``、博客自建图床等永远不会进入判定，正文图片原样保留）：
+        判据按可靠性排序：
 
-        * 强证据 ①：``<img>`` 与 ``<video poster>`` 是**同一张图**（文件名规格尾码公共长度
-          ≥ :attr:`COVER_TAIL_MIN`）——即「有播放页链接那一段」的封面；
-        * 强证据 ②：与已确认封面的**像素尺寸完全相同**——同一批封面（同一条视频的其余分段；
-          真实 8 段帖就是 8 张 750×1000，而视频 ``template=720x960``）；
-        * 兜底 ③：一条强证据都没有时（poster 与正文图文件名对不上），才看**长宽比与视频
-          一致**（``<source ... template=WxH>``，容差 2%）。
+        * **权威判据**：URL 是不是 ``sinaimg.cn/large/`` 变体。微博 API 对
+          ``type='video'`` 给 ``large/``、对 ``type=None`` 给 ``mw2000/``，
+          实测 56 条真实帖零例外（见 :attr:`WEIBO_COVER_VARIANT_RE`）。
+          多段视频帖每段封面尺寸可能各不相同（实测同一帖里 1340×822 与 1080×1633 混排），
+          只有这条能全部认出来；
+        * 兜底 ①：与 ``<video poster>`` 是**同一张图**（规格尾码公共长度 ≥
+          :attr:`COVER_TAIL_MIN`）——锁定「有播放页链接那一段」的封面；
+        * 兜底 ②：与已确认封面**像素尺寸完全相同**——同一条视频的其余分段；
+        * 兜底 ③：长宽比与视频 ``template=WxH`` 一致（容差 2%）。
 
-        强证据一旦命中就**不再**使用兜底 ③：宁可把封面当正文图多发一张，
-        也不把正文图当封面吞掉。``poster`` 不在微博图床、或压根没有 ``poster`` 时不做任何
-        判定——没有锚点就没有确证，交由上游补封面后再判。
+        兜底链只在权威判据一张都认不出来时使用；``poster`` 不在微博图床或压根没有
+        ``poster`` 时不做任何判定——没有锚点就没有确证，交由上游补封面后再判。
         """
         anchors = [c for c in (covers or []) if c and self.WEIBO_IMG_HOST_RE.match(c)]
         if not html or not anchors:
@@ -813,12 +818,17 @@ class DataHandler:
         if not candidates:
             return []
 
-        # ① 与 poster 同一张图 → 就是那一段视频的封面
+        # 权威判据：large/ 变体 = 视频封面（对应 pics[].type='video'）
+        by_variant = [url for url, _, _ in candidates if self.WEIBO_COVER_VARIANT_RE.search(url)]
+        if by_variant:
+            return by_variant
+
+        # 兜底 ① 与 poster 同一张图 → 就是那一段视频的封面
         confirmed = [
             item for item in candidates
             if any(self.same_weibo_pic(item[0], poster, self.COVER_TAIL_MIN) for poster in anchors)
         ]
-        # ② 与已确认封面像素尺寸完全相同的，是同一批封面（同一条视频的其余分段）
+        # 兜底 ② 与已确认封面像素尺寸完全相同的，是同一批封面（同一条视频的其余分段）
         sizes = {(width, height) for _, width, height in confirmed if width and height}
         if sizes:
             picked = {url for url, _, _ in confirmed}
@@ -829,7 +839,7 @@ class DataHandler:
         if confirmed:
             return [url for url, _, _ in confirmed]
 
-        # ③ 兜底：没有任何强证据时才用长宽比
+        # 兜底 ③：没有任何强证据时才用长宽比
         video_ratio = self.video_ratio_of(html)
         if not video_ratio:
             return []
