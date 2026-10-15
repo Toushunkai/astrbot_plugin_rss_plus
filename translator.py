@@ -101,6 +101,22 @@ class TranslatorService:
                 return False
         return True
 
+    def skip_reason(self, link: str = "", text: str = "", feed_url: str = "") -> str:
+        """这条内容不会被翻译时给出原因（返回空串 = 会被翻译）。
+
+        用于推送日志：以前「没翻译」既可能是不该翻（关键词没命中 / 原文已是目标语言），
+        也可能是该翻但没生效，日志里看不出来，只能靠猜。
+        """
+        if not self.enabled:
+            return "翻译功能未开启"
+        if not (text or "").strip():
+            return "正文为空"
+        if not self.should_translate(link, text, feed_url):
+            return "关键词未命中（订阅地址 / 原文链接 / 正文前 200 字）"
+        if not self.needs_translation(text):
+            return "已判定原文就是目标语言"
+        return ""
+
     def needs_translation(self, text: str) -> bool:
         """粗略判断文本是否已经是目标语言，避免浪费模型调用。"""
         if not text or not text.strip():

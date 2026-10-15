@@ -73,7 +73,7 @@ except Exception:  # noqa: BLE001 - 低版本 AstrBot 仍然可以正常使用�
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_rss_plus"
-PLUGIN_VERSION = "v1.6.7"
+PLUGIN_VERSION = "v1.6.8"
 
 # 微博 H5 视频接口：传视频 oid 就能拿到封面（不需要 cookie）。
 # 只在 RSSHub 没给出 <video poster> 时兜底用。
@@ -573,15 +573,24 @@ class RssPlugin(Star):
                 title = await self.translator.translate(title, umo=umo)
                 title_translated = True
 
-            if self.translator.enabled and self.translator.should_translate(
-                item.link, text, item.feed_url
-            ):
-                translated = await self.translator.translate(text, umo=umo)
-                if translated:
-                    text = translated
-                    text_translated = True
-                    if self.short_link_clean:
-                        text = self._replace_first_url(text, item.description, item.link)
+            if self.translator.enabled and text:
+                # 「没翻译」也要能看出原因：关键词没命中 / 判定已是目标语言 / 该翻却没生效
+                reason = self.translator.skip_reason(item.link, text, item.feed_url)
+                if reason:
+                    logger.info("RSS: 本条未翻译（%s）：%s", reason, item.link)
+                else:
+                    translated = await self.translator.translate(text, umo=umo)
+                    if translated and translated != text:
+                        text = translated
+                        text_translated = True
+                        if self.short_link_clean:
+                            text = self._replace_first_url(text, item.description, item.link)
+                        logger.info("RSS: 本条已翻译（%s）：%s", self.translator.target_lang, item.link)
+                    else:
+                        logger.warning(
+                            "RSS: 本条翻译未生效（模型不可用 / 超时 / 返回为空），已保留原文：%s",
+                            item.link,
+                        )
 
             # 译文命中：和原文一样不推送
             hit, where = self._block_scan(
